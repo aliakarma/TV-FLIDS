@@ -1,0 +1,29 @@
+# TV-FLIDS Requirements
+# Python 3.10.x required
+# Install: pip install -r requirements.txt
+
+# Core ML
+torch==2.1.0
+torchvision==0.16.0
+
+# Federated Learning
+flwr==1.6.0
+
+# Data Science
+scikit-learn==1.3.2
+pandas==2.1.3
+numpy==1.26.2
+scipy==1.11.4
+imbalanced-learn==0.11.0
+
+# Visualization
+matplotlib==3.8.2
+seaborn==0.13.0
+
+# Utilities
+pyyaml==6.0.1
+tqdm==4.66.1
+tensorboard==2.15.1
+
+# Stats (for Wilcoxon, McNemar tests)
+statsmodels==0.14.1

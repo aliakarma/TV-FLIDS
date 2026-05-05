@@ -1,0 +1,34 @@
+federated_learning:
+  num_clients: 20
+  num_rounds: 100
+  fraction_fit: 0.5
+  fraction_evaluate: 0.3
+  local_epochs: 5
+  local_batch_size: 256
+  local_lr: 0.001
+
+trust:
+  alpha: 0.4
+  beta: 0.4
+  gamma: 0.2
+  memory_decay: 0.9
+  min_trust: 0.01
+  meta_lr: 0.01
+
+verification:
+  loss_threshold: 0.0
+  cosine_threshold: 0.0
+  zscore_threshold: 2.5
+  warmup_rounds: 20
+
+adversarial:
+  attack_ratio: 0.3
+  attack_type: "label_flip"
+  gradient_scale_factor: 10.0
+  noise_std: 0.5
+  backdoor_poison_ratio: 0.1
+
+evaluation:
+  seeds: [42, 123, 456, 789, 1337]
+  primary_seed: 42
+  target_accuracy: 0.88
