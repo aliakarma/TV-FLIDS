@@ -35,7 +35,7 @@ from data.preprocessing.nslkdd_pipeline import (
     build_pipeline as nslkdd_pipeline, download_nslkdd, CLASS_NAMES
 )
 from data.partitioning import (
-    get_partitioner, create_server_validation_set
+    get_partitioner
 )
 from models.mlp import IDSMLP, build_model
 from fl.client import TVFLIDSClient
@@ -74,17 +74,15 @@ def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
         train_path = "data/raw/KDDTrain+.txt"
         test_path  = "data/raw/KDDTest+.txt"
         download_nslkdd(train_path, test_path)
-        X_train, y_train, X_test, y_test, _, _, class_weights = nslkdd_pipeline(
+        (X_train, y_train,
+         X_val, y_val,
+         X_test, y_test,
+         _, _, class_weights) = nslkdd_pipeline(
             train_path, test_path, use_smote=True, seed=seed
         )
     else:
         raise NotImplementedError(f"Dataset '{dataset}' not yet integrated. "
                                    "Use 'nslkdd'.")
-
-    # Extract server validation set (never shared with clients)
-    val_size = config.get("server", {}).get("val_size", 2000)
-    X_val, y_val = create_server_validation_set(X_train, y_train,
-                                                  val_size=val_size, seed=seed)
 
     # Partition training data across clients
     partitioner = get_partitioner(partition_type, alpha=alpha)
@@ -92,7 +90,7 @@ def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
 
     print(f"[Data] {dataset.upper()} | Clients={num_clients} | "
           f"Partition={partition_type}(α={alpha}) | "
-          f"Train={X_train.shape} | Test={X_test.shape} | Val={X_val.shape}")
+            f"Train={X_train.shape} | Test={X_test.shape} | Val={X_val.shape}")
 
     return client_data, X_test, y_test, X_val, y_val, class_weights
 
@@ -158,6 +156,7 @@ def make_strategy(
     device: torch.device,
     num_clients: int,
     fl_cfg: dict,
+    evaluate_fn=None,
 ):
     """Instantiate the requested FL strategy."""
     frac_fit  = fl_cfg.get("fraction_fit", 0.5)
@@ -169,6 +168,7 @@ def make_strategy(
         min_fit_clients=max(2, int(num_clients * frac_fit)),
         min_evaluate_clients=max(1, int(num_clients * frac_eval)),
         min_available_clients=num_clients,
+        evaluate_fn=evaluate_fn,
     )
 
     adv_ratio = config.get("adversarial", {}).get("attack_ratio", 0.3)
@@ -377,35 +377,27 @@ def run_experiment(
             batch_size=64, shuffle=True,
         )
 
-    # ── Strategy ──────────────────────────────────────────────────────
-    strategy = make_strategy(
-        strategy_name, config, global_model, val_loader, root_loader,
-        device, num_clients, fl_cfg,
-    )
-
-    # ── Client factory ────────────────────────────────────────────────
-    client_fn = make_client_fn(
-        client_data, X_val, y_val, config, device,
-        class_weights, malicious_ids, attack_type, attack_kwargs, model_kwargs,
-    )
-
     # ── Metrics tracker and overhead ──────────────────────────────────
     metrics_tracker = ExperimentMetrics(class_names=CLASS_NAMES[:num_classes])
     overhead_tracker = OverheadTracker()
 
-    # ── Evaluation callback ───────────────────────────────────────────
-    # We evaluate the global model manually each round via strategy logs
-    # and the parameters returned from simulate()
-
     # Store round-by-round results
     round_results: List[Dict] = []
+
+    class _StrategyContainer:
+        strategy = None
+
+    strategy_container = _StrategyContainer()
 
     def evaluate_fn(server_round: int, parameters, config_eval):
         """Flower evaluate_fn called after each round."""
         params_np = fl.common.parameters_to_ndarrays(parameters)
         trust_scores = None
-        if hasattr(strategy, "trust_scorer"):
-            trust_scores = strategy.trust_scorer.trust_scores.copy()
+        if (
+            hasattr(strategy_container, "strategy")
+            and hasattr(strategy_container.strategy, "trust_scorer")
+        ):
+            trust_scores = strategy_container.strategy.trust_scorer.trust_scores.copy()
 
         m = evaluate_global_model(
             global_model, params_np, X_test, y_test,
@@ -423,8 +415,23 @@ def run_experiment(
                   f"F1={m['f1_macro']:.4f} | "
                   f"ASR={m['attack_success_rate']:.4f}")
 
-        return m["accuracy"], {"f1_macro": m["f1_macro"],
-                                "attack_success_rate": m["attack_success_rate"]}
+        return m["accuracy"], {
+            "f1_macro": m["f1_macro"],
+            "attack_success_rate": m["attack_success_rate"],
+        }
+
+    # ── Strategy ──────────────────────────────────────────────────────
+    strategy = make_strategy(
+        strategy_name, config, global_model, val_loader, root_loader,
+        device, num_clients, fl_cfg, evaluate_fn=evaluate_fn,
+    )
+    strategy_container.strategy = strategy
+
+    # ── Client factory ────────────────────────────────────────────────
+    client_fn = make_client_fn(
+        client_data, X_val, y_val, config, device,
+        class_weights, malicious_ids, attack_type, attack_kwargs, model_kwargs,
+    )
 
     # ── Flower simulation ─────────────────────────────────────────────
     history = fl.simulation.start_simulation(
@@ -434,17 +441,6 @@ def run_experiment(
         strategy=strategy,
         client_resources={"num_cpus": 1, "num_gpus": 0.0},
     )
-
-    # Evaluate final model
-    if history.parameters_distributed:
-        final_params = history.parameters_distributed[-1]
-        final_params_np = fl.common.parameters_to_ndarrays(final_params)
-        final_metrics = evaluate_global_model(
-            global_model, final_params_np, X_test, y_test,
-            device, metrics_tracker, n_rounds + 1,
-        )
-    else:
-        final_metrics = metrics_tracker.get_final_summary()
 
     # ── Communication overhead ────────────────────────────────────────
     n_active = max(2, int(num_clients * fl_cfg.get("fraction_fit", 0.5)))
