@@ -24,8 +24,9 @@ class TVFLIDSStrategy(FedAvg):
     """
     def __init__(self, num_clients: int, config: dict, val_loader: DataLoader,
                  model: nn.Module, device: torch.device, adaptive: bool = True,
-                 use_adaptive_thresholds: bool = False, **kwargs):
-        super().__init__(**kwargs)
+                 use_adaptive_thresholds: bool = False, evaluate_fn=None,
+                 **kwargs):
+        super().__init__(evaluate_fn=evaluate_fn, **kwargs)
         self.num_clients = num_clients
         self.config = config
         self.val_loader = val_loader
@@ -112,14 +113,26 @@ class TVFLIDSStrategy(FedAvg):
             _gpar  = global_params
 
             def _val_fn(alpha, beta, gamma):
-                scores_np = np.clip(
-                    [float(alpha) * _sim[i] + float(beta) * _acc[i] - float(gamma) * _anom[i]
-                     for i in range(len(a_ids))], 0, 1)
-                total = scores_np.sum()
-                w = scores_np / total if total > 1e-8 else np.ones(len(a_ids)) / len(a_ids)
-                agg = [np.sum([w[i] * _apars[i][l] for i in range(len(a_ids))], axis=0)
-                       for l in range(len(_gpar))]
-                return torch.tensor(self._eval_model(agg), dtype=torch.float32, requires_grad=False)
+                """
+                Differentiable trust-weighted aggregation loss.
+                Connects alpha/beta/gamma to validation loss via per-client val losses.
+                """
+                per_client_losses = torch.tensor(
+                    [self._eval_model(_apars[i]) for i in range(len(a_ids))],
+                    dtype=torch.float32,
+                )
+                sim_t = torch.tensor(_sim, dtype=torch.float32)
+                acc_t = torch.tensor(_acc, dtype=torch.float32)
+                anom_t = torch.tensor(_anom, dtype=torch.float32)
+
+                raw_scores = torch.clamp(
+                    alpha * sim_t + beta * acc_t - gamma * anom_t, 0.0, 1.0
+                )
+                total = raw_scores.sum()
+                weights = raw_scores / (total + 1e-8)
+
+                weighted_val_loss = (weights * per_client_losses).sum()
+                return weighted_val_loss
 
             try:
                 self.trust_scorer.meta_update(_val_fn)
