@@ -70,9 +70,14 @@ def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
     fl_cfg = config["federated_learning"]
     num_clients = fl_cfg["num_clients"]
 
+    with open("config/dataset_config.yaml", "r") as f:
+        ds_cfg = yaml.safe_load(f).get("datasets", {}).get(dataset)
+    if not ds_cfg:
+        raise ValueError(f"Unknown dataset '{dataset}' in dataset_config.yaml")
+    train_path = ds_cfg.get("train_file")
+    test_path = ds_cfg.get("test_file")
+
     if dataset == "nslkdd":
-        train_path = "data/raw/KDDTrain+.txt"
-        test_path  = "data/raw/KDDTest+.txt"
         download_nslkdd(train_path, test_path)
         (X_train, y_train,
          X_val, y_val,
@@ -256,6 +261,29 @@ def evaluate_global_model(
     )
 
 
+def predict_global_model(
+    model: nn.Module,
+    parameters: List[np.ndarray],
+    X_test: np.ndarray,
+    device: torch.device,
+) -> np.ndarray:
+    """Load parameters into model and return predictions on test set."""
+    model.set_parameters(parameters)
+    model.eval()
+
+    X_t = torch.tensor(X_test, dtype=torch.float32).to(device)
+    batch_size = 512
+    all_preds = []
+
+    with torch.no_grad():
+        for i in range(0, len(X_t), batch_size):
+            logits = model(X_t[i:i + batch_size])
+            preds = torch.argmax(logits, dim=1)
+            all_preds.append(preds.cpu().numpy())
+
+    return np.concatenate(all_preds)
+
+
 # ── Main Runner ───────────────────────────────────────────────────────────────
 
 def run_experiment(
@@ -319,6 +347,7 @@ def run_experiment(
         "flip_ratio":    1.0,
         "target_class":  0,
     }
+    attack_kwargs["seed"] = seed
 
     malicious_ids = get_malicious_client_ids(
         num_clients, atk_cfg["ratio"], seed=seed
@@ -383,6 +412,7 @@ def run_experiment(
 
     # Store round-by-round results
     round_results: List[Dict] = []
+    last_params: Optional[List[np.ndarray]] = None
 
     class _StrategyContainer:
         strategy = None
@@ -391,7 +421,12 @@ def run_experiment(
 
     def evaluate_fn(server_round: int, parameters, config_eval):
         """Flower evaluate_fn called after each round."""
-        params_np = fl.common.parameters_to_ndarrays(parameters)
+        if isinstance(parameters, list):
+            params_np = parameters
+        else:
+            params_np = fl.common.parameters_to_ndarrays(parameters)
+        nonlocal last_params
+        last_params = params_np
         trust_scores = None
         if (
             hasattr(strategy_container, "strategy")
@@ -404,10 +439,17 @@ def run_experiment(
             device, metrics_tracker, server_round, trust_scores,
         )
         round_results.append(m)
-        logger.log_round(server_round, {
+        metric_floats = {
             k: v for k, v in m.items()
             if isinstance(v, (int, float)) and v is not None
-        })
+        }
+        if (
+            hasattr(strategy_container, "strategy")
+            and hasattr(strategy_container.strategy, "trust_scorer")
+        ):
+            ts_summary = strategy_container.strategy.trust_scorer.get_summary()
+            metric_floats.update({f"trust_{k}": float(v) for k, v in ts_summary.items()})
+        logger.log_round(server_round, metric_floats)
 
         if verbose:
             print(f"  [Eval R{server_round:03d}] "
@@ -441,6 +483,66 @@ def run_experiment(
         strategy=strategy,
         client_resources={"num_cpus": 1, "num_gpus": 0.0},
     )
+
+    # ── Persist final predictions for confusion matrices ─────────────
+    final_params = last_params if last_params is not None else global_model.get_parameters()
+    y_pred_final = predict_global_model(global_model, final_params, X_test, device)
+    preds_path = os.path.join(log_dir, "final_predictions.npz")
+    np.savez(preds_path, y_true=y_test, y_pred=y_pred_final)
+
+    # ── Figure generation (post-simulation) ──────────────────────────
+    if strategy_name in ("tvflids", "tvflids_fixed") and len(round_results) > 0:
+        try:
+            from evaluation.visualization import (
+                figure1_convergence_curves,
+                figure2_trust_evolution,
+            )
+            os.makedirs("results/figures", exist_ok=True)
+            figure1_convergence_curves(
+                {strategy_name: round_results},
+                save_path=(
+                    f"results/figures/fig1_{strategy_name}_"
+                    f"{attack_config_name}_seed{seed}.pdf"
+                ),
+            )
+            if hasattr(strategy, "trust_scorer"):
+                figure2_trust_evolution(
+                    strategy.get_trust_history(),
+                    malicious_ids,
+                    save_path=(
+                        f"results/figures/fig2_trust_{strategy_name}_"
+                        f"seed{seed}.pdf"
+                    ),
+                )
+        except Exception as e:
+            print(f"[Warning] Figure generation failed: {e}")
+
+    if strategy_name in ("fedavg", "tvflids") and attack_config_name == "label_flip_30":
+        peer = "tvflids" if strategy_name == "fedavg" else "fedavg"
+        if strategy_name in log_dir:
+            peer_log_dir = log_dir.replace(strategy_name, peer, 1)
+            peer_preds_path = os.path.join(peer_log_dir, "final_predictions.npz")
+            if os.path.exists(peer_preds_path) and os.path.exists(preds_path):
+                try:
+                    from evaluation.visualization import figure6_confusion_matrices
+                    peer_data = np.load(peer_preds_path)
+                    this_data = np.load(preds_path)
+                    if strategy_name == "fedavg":
+                        y_pred_fedavg = this_data["y_pred"]
+                        y_pred_tvflids = peer_data["y_pred"]
+                    else:
+                        y_pred_fedavg = peer_data["y_pred"]
+                        y_pred_tvflids = this_data["y_pred"]
+                    y_true = this_data["y_true"]
+                    figure6_confusion_matrices(
+                        y_true=y_true,
+                        y_pred_fedavg=y_pred_fedavg,
+                        y_pred_tvflids=y_pred_tvflids,
+                        class_names=CLASS_NAMES[:num_classes],
+                        save_path="results/figures/fig6_confusion.pdf",
+                    )
+                except Exception as e:
+                    print(f"[Warning] Figure 6 generation failed: {e}")
 
     # ── Communication overhead ────────────────────────────────────────
     n_active = max(2, int(num_clients * fl_cfg.get("fraction_fit", 0.5)))
