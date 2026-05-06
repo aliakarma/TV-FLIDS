@@ -256,6 +256,8 @@ bash scripts/run_all_experiments.sh
 
 Edit `config/fl_config.yaml` to change hyperparameters:
 
+Dataset paths live in `config/dataset_config.yaml`.
+
 ```yaml
 federated_learning:
   num_clients: 20       # Simulated IoT devices
