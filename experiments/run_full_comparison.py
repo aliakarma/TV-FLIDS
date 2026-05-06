@@ -19,6 +19,10 @@ from experiments.run_experiment import run_experiment
 from evaluation.statistical_testing import (
     build_results_table, compare_methods_wilcoxon, SEEDS
 )
+from evaluation.visualization import (
+    figure1_convergence_curves, figure6_confusion_matrices
+)
+from data.preprocessing.nslkdd_pipeline import CLASS_NAMES
 
 
 STRATEGIES = ["fedavg", "krum", "trimmed_mean", "fltrust", "foolsgold", "tvflids"]
@@ -48,6 +52,7 @@ def run_full_comparison(
 
     os.makedirs(output_dir, exist_ok=True)
     all_results = {}
+    log_root = "results/logs/comparison"
 
     for strategy in strategies:
         print(f"\n{'='*60}")
@@ -100,6 +105,56 @@ def run_full_comparison(
         json.dump({"raw": all_results, "table": table}, f,
                    indent=2, default=str)
     print(f"\n[Comparison] Saved to {out_path}")
+
+    # ── Figure 1 and 6 generation ───────────────────────────────────
+    try:
+        seed_for_figs = seeds[0] if seeds else SEEDS[0]
+        all_round_metrics = {}
+        label_map = {
+            "fedavg": "FedAvg",
+            "krum": "Krum",
+            "trimmed_mean": "TrimmedMean",
+            "fltrust": "FLTrust",
+            "foolsgold": "FoolsGold",
+            "tvflids": "TV-FLIDS",
+            "tvflids_fixed": "TV-FLIDS-Fixed",
+        }
+        for strategy in strategies:
+            log_path = os.path.join(
+                log_root, f"{strategy}_{attack}_seed{seed_for_figs}", "experiment_log.json"
+            )
+            if os.path.exists(log_path):
+                with open(log_path, "r") as f:
+                    data = json.load(f)
+                rounds = data.get("rounds", [])
+                if rounds:
+                    label = label_map.get(strategy, strategy)
+                    all_round_metrics[label] = rounds
+        if all_round_metrics:
+            os.makedirs("results/figures", exist_ok=True)
+            figure1_convergence_curves(
+                all_round_metrics,
+                save_path="results/figures/fig1_convergence.pdf",
+            )
+
+        fedavg_pred_path = os.path.join(
+            log_root, f"fedavg_{attack}_seed{seed_for_figs}", "final_predictions.npz"
+        )
+        tvflids_pred_path = os.path.join(
+            log_root, f"tvflids_{attack}_seed{seed_for_figs}", "final_predictions.npz"
+        )
+        if os.path.exists(fedavg_pred_path) and os.path.exists(tvflids_pred_path):
+            fedavg_data = np.load(fedavg_pred_path)
+            tvflids_data = np.load(tvflids_pred_path)
+            figure6_confusion_matrices(
+                y_true=fedavg_data["y_true"],
+                y_pred_fedavg=fedavg_data["y_pred"],
+                y_pred_tvflids=tvflids_data["y_pred"],
+                class_names=CLASS_NAMES,
+                save_path="results/figures/fig6_confusion.pdf",
+            )
+    except Exception as e:
+        print(f"[Warning] Figure generation failed: {e}")
     return all_results
 
 
