@@ -107,6 +107,7 @@ class TVFLIDSStrategy(FedAvg):
         # ── STEP 3: Update trust + optional meta-gradient ─────────────
         self.trust_scorer.update_trust(a_ids, sim, acc, anom)
 
+        adaptive_snap = None
         if self.adaptive and isinstance(self.trust_scorer, AdaptiveTrustScorer):
             _sim, _acc, _anom = sim.copy(), acc.copy(), anom.copy()
             _apars = a_pars[:]
@@ -135,7 +136,7 @@ class TVFLIDSStrategy(FedAvg):
                 return weighted_val_loss
 
             try:
-                self.trust_scorer.meta_update(_val_fn)
+                adaptive_snap = self.trust_scorer.meta_update(_val_fn)
             except Exception:
                 pass
 
@@ -154,6 +155,10 @@ class TVFLIDSStrategy(FedAvg):
             'num_rejected': len(vr['rejected']), 'all_rejected': 0,
             **{f'trust_{k}': float(v) for k, v in ts.items()},
         }
+        if adaptive_snap is not None:
+            log['adaptive_alpha'] = float(adaptive_snap['alpha'])
+            log['adaptive_beta'] = float(adaptive_snap['beta'])
+            log['adaptive_gamma'] = float(adaptive_snap['gamma'])
         self.round_logs.append(log)
         return ndarrays_to_parameters(aggregated), log
 
