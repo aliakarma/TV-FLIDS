@@ -144,12 +144,12 @@ def apply_smote(X: np.ndarray, y: np.ndarray, random_state: int = 42):
 # ── Main Pipeline ─────────────────────────────────────────────────────────────
 
 def build_pipeline(train_path: str, test_path: str, use_smote: bool = True,
-                   seed: int = 42):
+                   seed: int = 42, val_fraction: float = 0.05):
     """
     Full NSL-KDD preprocessing pipeline.
 
     Returns:
-        X_train, y_train, X_test, y_test, scaler, encoders, class_weights
+        X_train, y_train, X_val, y_val, X_test, y_test, scaler, encoders, class_weights
     """
     train_df, test_df = load_nslkdd(train_path, test_path)
 
@@ -160,23 +160,40 @@ def build_pipeline(train_path: str, test_path: str, use_smote: bool = True,
     test_df, _ = encode_categoricals(test_df, encoders=encoders, fit=False)
 
     feature_cols = [c for c in train_df.columns if c != "label"]
-    X_train = train_df[feature_cols].values.astype(np.float32)
-    y_train = train_df["label"].values.astype(np.int64)
+    X_all = train_df[feature_cols].values.astype(np.float32)
+    y_all = train_df["label"].values.astype(np.int64)
     X_test = test_df[feature_cols].values.astype(np.float32)
     y_test = test_df["label"].values.astype(np.int64)
 
-    X_train, X_test, scaler = normalize_features(X_train, X_test)
+    from sklearn.model_selection import train_test_split
+    X_train_raw, X_val_raw, y_train_raw, y_val = train_test_split(
+        X_all, y_all, test_size=val_fraction, stratify=y_all, random_state=seed
+    )
+
+    scaler = MinMaxScaler()
+    X_train_scaled = scaler.fit_transform(X_train_raw).astype(np.float32)
+    X_val = scaler.transform(X_val_raw).astype(np.float32)
+    X_test_scaled = scaler.transform(X_test).astype(np.float32)
 
     if use_smote:
-        X_train, y_train = apply_smote(X_train, y_train, random_state=seed)
+        X_train_scaled, y_train_raw = apply_smote(
+            X_train_scaled, y_train_raw, random_state=seed
+        )
 
-    weights = compute_class_weight("balanced",
-                                    classes=np.unique(y_train), y=y_train)
+    y_train = y_train_raw.astype(np.int64)
+    weights = compute_class_weight(
+        "balanced", classes=np.unique(y_train), y=y_train
+    )
 
-    print(f"[NSL-KDD] Train: {X_train.shape}, Test: {X_test.shape}")
-    print(f"[NSL-KDD] Class distribution: {np.bincount(y_train)}")
+    print(
+        f"[NSL-KDD] Train: {X_train_scaled.shape} | "
+        f"Val: {X_val.shape} | Test: {X_test_scaled.shape}"
+    )
 
-    return X_train, y_train, X_test, y_test, scaler, encoders, weights
+    return (
+        X_train_scaled, y_train, X_val, y_val.astype(np.int64),
+        X_test_scaled, y_test, scaler, encoders, weights
+    )
 
 
 if __name__ == "__main__":
