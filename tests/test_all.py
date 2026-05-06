@@ -220,6 +220,31 @@ class TestAdaptiveTrustScorer(unittest.TestCase):
         self.assertAlmostEqual(w['alpha'], 1/3, places=4)
 
 
+class TestMetaGradient(unittest.TestCase):
+    def test_weights_actually_change(self):
+        from trust.adaptive_trust_scorer import AdaptiveTrustScorer
+        ats = AdaptiveTrustScorer(10, meta_lr=0.1)
+        initial = ats.get_current_weights().copy()
+
+        def biased_val_fn(alpha, beta, gamma):
+            sim_t = torch.tensor([0.9, 0.1], dtype=torch.float32)
+            acc_t = torch.tensor([0.5, 0.5], dtype=torch.float32)
+            anom_t = torch.tensor([0.1, 0.9], dtype=torch.float32)
+            raw = torch.clamp(alpha * sim_t + beta * acc_t - gamma * anom_t, 0, 1)
+            w = raw / (raw.sum() + 1e-8)
+            losses = torch.tensor([0.3, 1.2], dtype=torch.float32)
+            return (w * losses).sum()
+
+        for _ in range(5):
+            ats.meta_update(biased_val_fn)
+
+        updated = ats.get_current_weights()
+        self.assertNotAlmostEqual(
+            initial['alpha'], updated['alpha'], places=4,
+            msg="Weights did not change - gradient not flowing"
+        )
+
+
 # ── Verification Module Tests ─────────────────────────────────────────────────
 
 class TestVerificationModule(unittest.TestCase):
