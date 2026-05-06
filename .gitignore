@@ -53,3 +53,4 @@ runs/
 !results/tables/.gitkeep
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+/.mypy_cache
