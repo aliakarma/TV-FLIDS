@@ -48,11 +48,18 @@ class AdaptiveTrustScorer(TrustScorer):
         w = self.weights
         try:
             loss = compute_val_loss_fn(w[0], w[1], w[2])
-            if isinstance(loss, torch.Tensor) and loss.requires_grad:
-                loss.backward()
-                self.meta_optimizer.step()
-        except Exception:
-            pass  # Non-fatal: keep previous weights
+            assert isinstance(loss, torch.Tensor), "val_fn must return a Tensor"
+            if not loss.requires_grad:
+                raise ValueError(
+                    "val_fn returned requires_grad=False. "
+                    "Ensure computation graph connects to alpha/beta/gamma."
+                )
+            loss.backward()
+            self.meta_optimizer.step()
+        except AssertionError:
+            raise
+        except Exception as e:
+            print(f"[AdaptiveTrust] meta_update skipped: {e}")
         self._sync_weights()
         snap = self.get_current_weights()
         self.weight_history.append(snap)
