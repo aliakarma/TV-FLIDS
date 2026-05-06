@@ -26,6 +26,7 @@ class TVFLIDSClient(fl.client.NumPyClient):
         self.is_malicious = is_malicious
         self.attack_type = attack_type
         self.attack_kwargs = attack_kwargs or {}
+        self.seed = self.attack_kwargs.get("seed", 42)
         self.factory = AdversarialAttackFactory()
 
         self.X_train_np = X_train.copy()
@@ -59,15 +60,21 @@ class TVFLIDSClient(fl.client.NumPyClient):
         # Data-level attacks BEFORE training
         if self.is_malicious:
             if self.attack_type == 'label_flip':
-                y = self.factory.label_flip(y, target_class=self.attack_kwargs.get('target_class', 0),
-                                             flip_ratio=self.attack_kwargs.get('flip_ratio', 1.0))
+                y = self.factory.label_flip(
+                    y,
+                    target_class=self.attack_kwargs.get('target_class', 0),
+                    flip_ratio=self.attack_kwargs.get('flip_ratio', 1.0),
+                    seed=self.seed + self.client_id,
+                )
             elif self.attack_type == 'backdoor':
                 X, y = self.factory.backdoor_attack(
                     X, y,
                     trigger_feature_idx=self.attack_kwargs.get('trigger_feature_idx', 0),
                     trigger_value=self.attack_kwargs.get('trigger_value', 1.0),
                     target_class=self.attack_kwargs.get('target_class', 0),
-                    poison_ratio=self.attack_kwargs.get('poison_ratio', 0.1))
+                    poison_ratio=self.attack_kwargs.get('poison_ratio', 0.1),
+                    seed=self.seed + self.client_id,
+                )
 
         # Local training
         bs = self.config.get('local_batch_size', 256)
