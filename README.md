@@ -177,6 +177,17 @@ python experiments/run_experiment.py --strategy tvflids --attack backdoor_20
 
 ---
 
+## Testing
+
+Integration tests will auto-download NSL-KDD if needed.
+
+```bash
+python tests/test_all.py
+python tests/test_integration.py
+```
+
+---
+
 ## Reproducing Paper Results
 
 ### Table 1 — Full Strategy Comparison
