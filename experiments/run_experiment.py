@@ -32,7 +32,10 @@ if ROOT not in sys.path:
 from utils.seed import set_all_seeds, get_device
 from utils.logger import ExperimentLogger
 from data.preprocessing.nslkdd_pipeline import (
-    build_pipeline as nslkdd_pipeline, download_nslkdd, CLASS_NAMES
+    build_pipeline as nslkdd_pipeline, download_nslkdd, CLASS_NAMES as NSLKDD_CLASS_NAMES
+)
+from data.preprocessing.unswnb15_pipeline import (
+    build_pipeline as unswnb15_pipeline, CLASS_NAMES as UNSW_CLASS_NAMES
 )
 from data.partitioning import (
     get_partitioner
@@ -45,6 +48,8 @@ from fl.baselines.krum_strategy import KrumStrategy
 from fl.baselines.trimmed_mean_strategy import TrimmedMeanStrategy
 from fl.baselines.fltrust_strategy import FLTrustStrategy
 from fl.baselines.foolsgold_strategy import FoolsGoldStrategy
+from fl.baselines.flame_strategy import FLAMEStrategy
+from fl.baselines.rfa_strategy import RFAStrategy
 from attacks.adversarial import ATTACK_CONFIGS, get_malicious_client_ids
 from evaluation.metrics import ExperimentMetrics
 from evaluation.overhead import OverheadTracker, estimate_communication_cost
@@ -85,9 +90,16 @@ def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
          _, _, class_weights) = nslkdd_pipeline(
             train_path, test_path, use_smote=True, seed=seed
         )
+    elif dataset == "unswnb15":
+        (X_train, y_train,
+         X_val, y_val,
+         X_test, y_test,
+         _, _, class_weights) = unswnb15_pipeline(
+            train_path, test_path, use_smote=True, seed=seed
+        )
     else:
         raise NotImplementedError(f"Dataset '{dataset}' not yet integrated. "
-                                   "Use 'nslkdd'.")
+                                   "Use 'nslkdd' or 'unswnb15'.")
 
     # Partition training data across clients
     partitioner = get_partitioner(partition_type, alpha=alpha)
@@ -161,6 +173,10 @@ def make_strategy(
     device: torch.device,
     num_clients: int,
     fl_cfg: dict,
+    attack_type: Optional[str] = None,
+    attack_kwargs: Optional[dict] = None,
+    malicious_ids: Optional[List[int]] = None,
+    seed: int = 42,
     evaluate_fn=None,
 ):
     """Instantiate the requested FL strategy."""
@@ -179,19 +195,38 @@ def make_strategy(
     adv_ratio = config.get("adversarial", {}).get("attack_ratio", 0.3)
     n_byzantine = max(1, int(num_clients * adv_ratio))
 
+    attack_kwargs = attack_kwargs or {}
+
     if strategy_name == "fedavg":
-        return FedAvgStrategy(**common_kwargs)
+        return FedAvgStrategy(
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            **common_kwargs,
+        )
 
     elif strategy_name == "krum":
         return KrumStrategy(
             num_clients=num_clients,
             num_byzantine=n_byzantine,
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
             **common_kwargs,
         )
 
     elif strategy_name == "trimmed_mean":
         beta = min(0.35, adv_ratio + 0.05)
-        return TrimmedMeanStrategy(beta=beta, **common_kwargs)
+        return TrimmedMeanStrategy(
+            beta=beta,
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            **common_kwargs,
+        )
 
     elif strategy_name == "fltrust":
         if root_loader is None:
@@ -202,11 +237,41 @@ def make_strategy(
             device=device,
             local_epochs=1,
             lr=fl_cfg.get("local_lr", 0.001),
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
             **common_kwargs,
         )
 
     elif strategy_name == "foolsgold":
-        return FoolsGoldStrategy(num_clients=num_clients, **common_kwargs)
+        return FoolsGoldStrategy(
+            num_clients=num_clients,
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            **common_kwargs,
+        )
+
+    elif strategy_name == "flame":
+        return FLAMEStrategy(
+            num_clients=num_clients,
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            seed=seed,
+            **common_kwargs,
+        )
+
+    elif strategy_name == "rfa":
+        return RFAStrategy(
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            **common_kwargs,
+        )
 
     elif strategy_name in ("tvflids", "tvflids_adaptive", "tvflids_fixed"):
         adaptive = (strategy_name != "tvflids_fixed")
@@ -218,13 +283,17 @@ def make_strategy(
             device=device,
             adaptive=adaptive,
             use_adaptive_thresholds=False,
+            known_malicious=malicious_ids,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            seed=seed,
             **common_kwargs,
         )
 
     else:
         raise ValueError(f"Unknown strategy: {strategy_name}. "
                          "Choose: fedavg, krum, trimmed_mean, fltrust, "
-                         "foolsgold, tvflids, tvflids_fixed")
+                         "foolsgold, flame, rfa, tvflids, tvflids_fixed")
 
 
 # ── Global Model Evaluator ────────────────────────────────────────────────────
@@ -346,6 +415,7 @@ def run_experiment(
         "poison_ratio":  atk_cfg.get("poison_ratio", 0.1),
         "flip_ratio":    1.0,
         "target_class":  0,
+        "gamma":         atk_cfg.get("gamma", 2.0),
     }
     attack_kwargs["seed"] = seed
 
@@ -407,7 +477,16 @@ def run_experiment(
         )
 
     # ── Metrics tracker and overhead ──────────────────────────────────
-    metrics_tracker = ExperimentMetrics(class_names=CLASS_NAMES[:num_classes])
+    if dataset == "nslkdd":
+        class_names = NSLKDD_CLASS_NAMES
+    elif dataset == "unswnb15":
+        class_names = UNSW_CLASS_NAMES
+    else:
+        class_names = None
+
+    metrics_tracker = ExperimentMetrics(
+        class_names=class_names[:num_classes] if class_names else None
+    )
     overhead_tracker = OverheadTracker()
 
     # Store round-by-round results
@@ -465,7 +544,12 @@ def run_experiment(
     # ── Strategy ──────────────────────────────────────────────────────
     strategy = make_strategy(
         strategy_name, config, global_model, val_loader, root_loader,
-        device, num_clients, fl_cfg, evaluate_fn=evaluate_fn,
+        device, num_clients, fl_cfg,
+        attack_type=attack_type,
+        attack_kwargs=attack_kwargs,
+        malicious_ids=malicious_ids,
+        seed=seed,
+        evaluate_fn=evaluate_fn,
     )
     strategy_container.strategy = strategy
 
@@ -538,7 +622,7 @@ def run_experiment(
                         y_true=y_true,
                         y_pred_fedavg=y_pred_fedavg,
                         y_pred_tvflids=y_pred_tvflids,
-                        class_names=CLASS_NAMES[:num_classes],
+                        class_names=class_names[:num_classes] if class_names else None,
                         save_path="results/figures/fig6_confusion.pdf",
                     )
                 except Exception as e:
@@ -591,13 +675,14 @@ Examples:
     )
     parser.add_argument("--strategy",   type=str, default="tvflids",
                         choices=["fedavg", "krum", "trimmed_mean", "fltrust",
-                                 "foolsgold", "tvflids", "tvflids_fixed"],
+                                 "foolsgold", "flame", "rfa", "tvflids", "tvflids_fixed"],
                         help="Aggregation strategy")
     parser.add_argument("--attack",     type=str, default="label_flip_30",
                         choices=list(ATTACK_CONFIGS.keys()),
                         help="Attack configuration")
     parser.add_argument("--dataset",    type=str, default="nslkdd",
-                        help="Dataset name (nslkdd)")
+                        choices=["nslkdd", "unswnb15"],
+                        help="Dataset name")
     parser.add_argument("--partition",  type=str, default="noniid",
                         choices=["iid", "noniid"],
                         help="Data partitioning strategy")
