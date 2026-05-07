@@ -107,9 +107,27 @@ class FLAMEStrategy(FedAvg):
         )
 
         n_active = len(flat_updates)
+        if n_active < 2:
+            aggregated = [
+                np.mean([p[i] for p in params_list], axis=0)
+                for i in range(len(global_params))
+            ]
+            if self.global_model is not None:
+                self.global_model.set_parameters(aggregated)
+            log = {
+                "round": server_round,
+                "flame_benign": int(n_active),
+                "flame_outliers": 0,
+                "flame_clip_norm": 0.0,
+                "flame_noise_std": 0.0,
+            }
+            self.round_logs.append(log)
+            return ndarrays_to_parameters(aggregated), log
+
         min_cluster_size = self.min_cluster_size
         if min_cluster_size is None:
             min_cluster_size = max(2, int(n_active * 0.5))
+        min_cluster_size = min(min_cluster_size, n_active)
 
         clusterer = hdbscan.HDBSCAN(
             min_cluster_size=min_cluster_size,
