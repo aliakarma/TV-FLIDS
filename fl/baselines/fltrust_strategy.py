@@ -23,6 +23,7 @@ import flwr as fl
 from flwr.common import FitRes, Parameters, Scalar, ndarrays_to_parameters, parameters_to_ndarrays
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
+from attacks.adversarial import apply_min_max_attack_to_params
 
 
 class FLTrustStrategy(FedAvg):
@@ -44,6 +45,9 @@ class FLTrustStrategy(FedAvg):
         device: torch.device,
         local_epochs: int = 1,
         lr: float = 0.001,
+        attack_type: Optional[str] = None,
+        attack_kwargs: Optional[dict] = None,
+        malicious_ids: Optional[List[int]] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -52,6 +56,9 @@ class FLTrustStrategy(FedAvg):
         self.device = device
         self.local_epochs = local_epochs
         self.lr = lr
+        self.attack_type = attack_type
+        self.attack_kwargs = attack_kwargs or {}
+        self.malicious_ids = malicious_ids or []
         self.round_logs: List[Dict] = []
 
     def aggregate_fit(
@@ -65,6 +72,7 @@ class FLTrustStrategy(FedAvg):
             return None, {}
 
         global_params = self.server_model.get_parameters()
+        client_ids = [int(proxy.cid) for proxy, _ in results]
 
         # ── Step 1: Compute server root update ────────────────────────
         root_update = self._compute_root_update(global_params)
@@ -75,8 +83,21 @@ class FLTrustStrategy(FedAvg):
         trust_scores: List[float] = []
         normalized_updates: List[List[np.ndarray]] = []
 
-        for proxy, fit_res in results:
-            client_params = parameters_to_ndarrays(fit_res.parameters)
+        client_params_list = [
+            parameters_to_ndarrays(fit_res.parameters)
+            for _, fit_res in results
+        ]
+
+        if self.attack_type == "min_max" and self.malicious_ids:
+            client_params_list = apply_min_max_attack_to_params(
+                client_params_list,
+                global_params,
+                client_ids,
+                self.malicious_ids,
+                gamma=self.attack_kwargs.get("gamma", 2.0),
+            )
+
+        for client_params in client_params_list:
             delta = [c - g for c, g in zip(client_params, global_params)]
             flat_delta = np.concatenate([d.flatten() for d in delta])
             client_norm = float(np.linalg.norm(flat_delta))
