@@ -15,6 +15,7 @@ from flwr.server.strategy import FedAvg
 from trust.trust_scorer import TrustScorer
 from trust.adaptive_trust_scorer import AdaptiveTrustScorer
 from trust.verification import VerificationModule
+from attacks.adversarial import apply_min_max_attack_to_params
 
 
 class TVFLIDSStrategy(FedAvg):
@@ -24,7 +25,12 @@ class TVFLIDSStrategy(FedAvg):
     """
     def __init__(self, num_clients: int, config: dict, val_loader: DataLoader,
                  model: nn.Module, device: torch.device, adaptive: bool = True,
-                 use_adaptive_thresholds: bool = False, evaluate_fn=None,
+                 use_adaptive_thresholds: bool = False,
+                 known_malicious: Optional[List[int]] = None,
+                 attack_type: Optional[str] = None,
+                 attack_kwargs: Optional[dict] = None,
+                 seed: int = 42,
+                 evaluate_fn=None,
                  **kwargs):
         super().__init__(evaluate_fn=evaluate_fn, **kwargs)
         self.num_clients = num_clients
@@ -34,6 +40,11 @@ class TVFLIDSStrategy(FedAvg):
         self.device = device
         self.adaptive = adaptive
         self.use_adaptive_thresholds = use_adaptive_thresholds
+        self._known_malicious = set(known_malicious or [])
+        self.attack_type = attack_type
+        self.attack_kwargs = attack_kwargs or {}
+        self.seed = seed
+        self._last_round_data: Optional[Dict] = None
 
         t = config.get('trust', {})
         v = config.get('verification', {})
@@ -70,6 +81,15 @@ class TVFLIDSStrategy(FedAvg):
         client_ids    = [int(p.cid) for p, _ in results]
         global_params = self.model.get_parameters()
 
+        if self.attack_type == "min_max" and self._known_malicious:
+            client_params = apply_min_max_attack_to_params(
+                client_params,
+                global_params,
+                client_ids,
+                list(self._known_malicious),
+                gamma=self.attack_kwargs.get("gamma", 2.0),
+            )
+
         # Δw_i = w_i^trained − w_global
         updates = [[c - g for c, g in zip(cp, global_params)] for cp in client_params]
 
@@ -96,6 +116,16 @@ class TVFLIDSStrategy(FedAvg):
         a_ids  = [cid for cid, _ in active]
         a_upds = [upd for _, upd in active]
         a_pars = [[g + u for g, u in zip(global_params, upd)] for upd in a_upds]
+
+        if self.config.get("log_client_params", False):
+            honest_ids = [cid for cid in a_ids if cid not in self._known_malicious]
+            byzantine_ids = [cid for cid in a_ids if cid in self._known_malicious]
+            self._last_round_data = {
+                "honest_ids": honest_ids,
+                "byzantine_ids": byzantine_ids,
+                "trust_scores": self.trust_scorer.trust_scores.copy(),
+                "client_params": {cid: a_pars[i] for i, cid in enumerate(a_ids)},
+            }
 
         # ── STEP 2: Trust signals ─────────────────────────────────────
         mean_upd = [np.mean([u[i] for u in a_upds], axis=0) for i in range(len(global_params))]
