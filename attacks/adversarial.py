@@ -1,6 +1,6 @@
 """
 attacks/adversarial.py
-Four adversarial attack implementations for FL poisoning experiments.
+Five adversarial attack implementations for FL poisoning experiments.
 Reference: Guide §9
 """
 
