@@ -1,6 +1,6 @@
 """
 experiments/run_full_comparison.py
-Multi-seed full comparison: all 5 strategies vs all attack types.
+Multi-seed full comparison across all strategies.
 Produces the main results Table 1 with mean ± std and Wilcoxon tests.
 
 Reference: Guide §10.3
