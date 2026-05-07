@@ -92,6 +92,34 @@ def verify_proposition1(
     }
 
 
+def verify_from_experiment_log(experiment_log_path: str, strategy_ref) -> Dict:
+    """
+    Verify Proposition 1 using actual trust scores and parameters from a live run.
+
+    Args:
+        experiment_log_path: Path to the experiment log JSON (for traceability).
+        strategy_ref:         Live strategy instance with _last_round_data.
+    """
+    last_data = getattr(strategy_ref, "_last_round_data", None)
+    if not last_data:
+        return {
+            "error": "No logged client params. Enable log_client_params in config.",
+            "experiment_log": experiment_log_path,
+        }
+
+    result = verify_proposition1(
+        trust_scores=last_data["trust_scores"],
+        honest_ids=last_data["honest_ids"],
+        byzantine_ids=last_data["byzantine_ids"],
+        global_params=strategy_ref.model.get_parameters(),
+        honest_params=[last_data["client_params"][i] for i in last_data["honest_ids"]],
+        byzantine_params=[last_data["client_params"][i] for i in last_data["byzantine_ids"]],
+        tau_min=strategy_ref.config["trust"]["min_trust"],
+    )
+    result["experiment_log"] = experiment_log_path
+    return result
+
+
 def run_verification_suite(n_configs: int = 10) -> Dict:
     """
     Run Proposition 1 verification across multiple random configurations.
