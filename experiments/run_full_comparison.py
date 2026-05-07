@@ -25,7 +25,10 @@ from evaluation.visualization import (
 from data.preprocessing.nslkdd_pipeline import CLASS_NAMES
 
 
-STRATEGIES = ["fedavg", "krum", "trimmed_mean", "fltrust", "foolsgold", "tvflids"]
+STRATEGIES = [
+    "fedavg", "krum", "trimmed_mean", "fltrust",
+    "foolsgold", "flame", "rfa", "tvflids",
+]
 PRIMARY_ATTACK = "label_flip_30"
 METRICS = ["final_accuracy", "final_f1_macro", "final_attack_success_rate"]
 
@@ -116,6 +119,8 @@ def run_full_comparison(
             "trimmed_mean": "TrimmedMean",
             "fltrust": "FLTrust",
             "foolsgold": "FoolsGold",
+            "flame": "FLAME",
+            "rfa": "RFA",
             "tvflids": "TV-FLIDS",
             "tvflids_fixed": "TV-FLIDS-Fixed",
         }
