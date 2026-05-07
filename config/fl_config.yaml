@@ -32,3 +32,6 @@ evaluation:
   seeds: [42, 123, 456, 789, 1337]
   primary_seed: 42
   target_accuracy: 0.88
+
+# Optional: enable to log last-round client params for Proposition 1 verification
+log_client_params: false
