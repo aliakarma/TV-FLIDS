@@ -37,7 +37,7 @@ done
 # ── Step 3: Stage 2 — Attack variety (TV-FLIDS) ─────────────────────
 echo ""
 echo "[Step 3] Stage 2: Attack variety experiments..."
-for ATTACK in gradient_scale_30 noise_30 backdoor_20; do
+for ATTACK in gradient_scale_30 noise_30 backdoor_20 min_max_30; do
     echo "  TV-FLIDS vs $ATTACK..."
     $PYTHON experiments/run_experiment.py \
         --strategy tvflids \
@@ -47,6 +47,12 @@ for ATTACK in gradient_scale_30 noise_30 backdoor_20; do
         --config $CONFIG \
         --quiet
 done
+
+# ── Proposition 1 verification (requires log_client_params=true) ─────────
+echo ""
+echo "[Proposition 1] Verification on real experimental outputs..."
+echo "  Set 'log_client_params: true' in config/fl_config.yaml"
+echo "  Output: results/tables/proposition1_real.json"
 
 # ── Step 4: Stage 3 — Adversarial ratio sweep ────────────────────────
 echo ""
