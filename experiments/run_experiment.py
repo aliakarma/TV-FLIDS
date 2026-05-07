@@ -373,7 +373,7 @@ def run_experiment(
     Args:
         strategy_name:      FL strategy to use.
         attack_config_name: Key from ATTACK_CONFIGS dict.
-        dataset:            Dataset name ('nslkdd').
+        dataset:            Dataset name ('nslkdd' or 'unswnb15').
         partition_type:     'iid' or 'noniid'.
         alpha:              Dirichlet α for non-IID partitioning.
         seed:               Random seed.
