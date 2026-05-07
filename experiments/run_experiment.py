@@ -650,6 +650,22 @@ def run_experiment(
     logger.log_summary(summary)
     logger.save()
 
+    if config.get("log_client_params", False) and getattr(strategy, "_last_round_data", None):
+        try:
+            from theory.proposition1_verification import verify_from_experiment_log
+            prop_result = verify_from_experiment_log(
+                os.path.join(log_dir, "experiment_log.json"),
+                strategy,
+            )
+            os.makedirs("results/tables", exist_ok=True)
+            out_path = "results/tables/proposition1_real.json"
+            with open(out_path, "w") as f:
+                json.dump(prop_result, f, indent=2, default=str)
+            if verbose:
+                print(f"[Proposition 1] Saved verification to {out_path}")
+        except Exception as e:
+            print(f"[Warning] Proposition 1 verification failed: {e}")
+
     if verbose:
         print(f"\n[Summary] Strategy={strategy_name} | Attack={attack_config_name}")
         print(f"  Final Accuracy:      {summary.get('final_accuracy', 0):.4f}")
