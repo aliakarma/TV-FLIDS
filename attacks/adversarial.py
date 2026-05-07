@@ -80,6 +80,29 @@ class AdversarialAttackFactory:
         ]
 
     @staticmethod
+    def min_max_attack(client_params: List[np.ndarray],
+                       global_params: List[np.ndarray],
+                       all_updates: List[List[np.ndarray]],
+                       gamma: float = 2.0) -> List[np.ndarray]:
+        """
+        Min-Max Attack (Shejwalkar & Houmansadr, NDSS 2021).
+        Maximizes deviation from honest aggregate while staying within the
+        norm ball of honest updates, minimizing detectability.
+
+        Reference: https://arxiv.org/abs/2103.06820
+        """
+        honest_norms = [
+            np.linalg.norm(np.concatenate([p.flatten() for p in u]))
+            for u in all_updates
+        ]
+        bound = np.mean(honest_norms) + gamma * np.std(honest_norms)
+
+        delta = [c - g for c, g in zip(client_params, global_params)]
+        flat = np.concatenate([d.flatten() for d in delta])
+        scale = min(bound / (np.linalg.norm(flat) + 1e-8), gamma)
+        return [g + scale * d for g, d in zip(global_params, delta)]
+
+    @staticmethod
     def backdoor_attack(X: np.ndarray, y: np.ndarray,
                         trigger_feature_idx: int = 0,
                         trigger_value: float = 1.0,
@@ -118,7 +141,35 @@ ATTACK_CONFIGS = {
     "gradient_scale_30":  {"ratio": 0.30, "type": "gradient_scale", "factor": 10.0},
     "noise_30":           {"ratio": 0.30, "type": "noise", "std": 0.5},
     "backdoor_20":        {"ratio": 0.20, "type": "backdoor", "poison_ratio": 0.1},
+    "min_max_30":         {"ratio": 0.30, "type": "min_max", "gamma": 2.0},
 }
+
+
+def apply_min_max_attack_to_params(
+    client_params: List[List[np.ndarray]],
+    global_params: List[np.ndarray],
+    client_ids: List[int],
+    malicious_ids: List[int],
+    gamma: float = 2.0,
+) -> List[List[np.ndarray]]:
+    """Apply Min-Max attack to malicious client parameters in-place."""
+    if not malicious_ids:
+        return client_params
+    malicious_set = set(malicious_ids)
+    if not malicious_set:
+        return client_params
+
+    all_updates = [
+        [c - g for c, g in zip(params, global_params)]
+        for params in client_params
+    ]
+
+    for idx, cid in enumerate(client_ids):
+        if cid in malicious_set:
+            client_params[idx] = AdversarialAttackFactory.min_max_attack(
+                client_params[idx], global_params, all_updates, gamma=gamma
+            )
+    return client_params
 
 
 def get_malicious_client_ids(
