@@ -83,12 +83,12 @@ def map_attack_cat(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_pipeline(train_path: str, test_path: str, use_smote: bool = True,
-                   seed: int = 42):
+                   seed: int = 42, val_fraction: float = 0.05):
     """
     Full UNSW-NB15 preprocessing pipeline.
 
     Returns:
-        X_train, y_train, X_test, y_test, scaler, encoders, class_weights
+        X_train, y_train, X_val, y_val, X_test, y_test, scaler, encoders, class_weights
     """
     train_df, test_df = load_unswnb15(train_path, test_path)
 
@@ -107,28 +107,44 @@ def build_pipeline(train_path: str, test_path: str, use_smote: bool = True,
 
     feature_cols = [c for c in train_df.columns if c != "label"]
 
-    X_train = train_df[feature_cols].values.astype(np.float32)
-    y_train = train_df["label"].values.astype(np.int64)
+    X_all = train_df[feature_cols].values.astype(np.float32)
+    y_all = train_df["label"].values.astype(np.int64)
     X_test = test_df[feature_cols].values.astype(np.float32)
     y_test = test_df["label"].values.astype(np.int64)
 
-    # Normalize
+    from sklearn.model_selection import train_test_split
+    X_train_raw, X_val_raw, y_train_raw, y_val = train_test_split(
+        X_all, y_all, test_size=val_fraction, stratify=y_all, random_state=seed
+    )
+
+    # Normalize (fit on train only)
     scaler = MinMaxScaler()
-    X_train = scaler.fit_transform(X_train).astype(np.float32)
-    X_test = scaler.transform(X_test).astype(np.float32)
+    X_train_scaled = scaler.fit_transform(X_train_raw).astype(np.float32)
+    X_val = scaler.transform(X_val_raw).astype(np.float32)
+    X_test_scaled = scaler.transform(X_test).astype(np.float32)
 
     if use_smote and _SMOTE_AVAILABLE:
-        unique, counts = np.unique(y_train, return_counts=True)
+        unique, counts = np.unique(y_train_raw, return_counts=True)
         min_count = counts.min()
         if min_count >= 2:
             k = min(3, min_count - 1)
             smote = SMOTE(random_state=seed, k_neighbors=k)
-            X_train, y_train = smote.fit_resample(X_train, y_train)
-            X_train = X_train.astype(np.float32)
-            y_train = y_train.astype(np.int64)
+            X_train_scaled, y_train_raw = smote.fit_resample(X_train_scaled, y_train_raw)
+            X_train_scaled = X_train_scaled.astype(np.float32)
+            y_train_raw = y_train_raw.astype(np.int64)
+    elif use_smote and not _SMOTE_AVAILABLE:
+        print("[Warning] imbalanced-learn not installed. Skipping SMOTE.")
+
+    y_train = y_train_raw.astype(np.int64)
 
     weights = compute_class_weight("balanced",
                                     classes=np.unique(y_train), y=y_train)
 
-    print(f"[UNSW-NB15] Train: {X_train.shape}, Test: {X_test.shape}")
-    return X_train, y_train, X_test, y_test, scaler, encoders, weights
+    print(
+        f"[UNSW-NB15] Train: {X_train_scaled.shape} | "
+        f"Val: {X_val.shape} | Test: {X_test_scaled.shape}"
+    )
+    return (
+        X_train_scaled, y_train, X_val, y_val.astype(np.int64),
+        X_test_scaled, y_test, scaler, encoders, weights
+    )
