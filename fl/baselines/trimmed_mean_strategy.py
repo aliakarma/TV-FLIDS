@@ -11,6 +11,7 @@ import flwr as fl
 from flwr.common import FitRes, Parameters, Scalar, ndarrays_to_parameters, parameters_to_ndarrays
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
+from attacks.adversarial import apply_min_max_attack_to_params
 
 
 class TrimmedMeanStrategy(FedAvg):
@@ -26,9 +27,21 @@ class TrimmedMeanStrategy(FedAvg):
         beta: Fraction to trim from each tail (0.1 = trim 10% each side).
     """
 
-    def __init__(self, beta: float = 0.1, **kwargs):
+    def __init__(
+        self,
+        beta: float = 0.1,
+        global_model: Optional[object] = None,
+        attack_type: Optional[str] = None,
+        attack_kwargs: Optional[dict] = None,
+        malicious_ids: Optional[List[int]] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.beta = beta
+        self.global_model = global_model
+        self.attack_type = attack_type
+        self.attack_kwargs = attack_kwargs or {}
+        self.malicious_ids = malicious_ids or []
         self.round_logs: List[Dict] = []
 
     def aggregate_fit(
@@ -41,10 +54,21 @@ class TrimmedMeanStrategy(FedAvg):
         if not results:
             return None, {}
 
+        client_ids = [int(proxy.cid) for proxy, _ in results]
         params_list = [
             parameters_to_ndarrays(fit_res.parameters)
             for _, fit_res in results
         ]
+
+        if self.attack_type == "min_max" and self.global_model is not None:
+            global_params = self.global_model.get_parameters()
+            params_list = apply_min_max_attack_to_params(
+                params_list,
+                global_params,
+                client_ids,
+                self.malicious_ids,
+                gamma=self.attack_kwargs.get("gamma", 2.0),
+            )
         n = len(params_list)
         k = int(np.floor(self.beta * n))   # Values to trim from each tail
 
@@ -76,5 +100,8 @@ class TrimmedMeanStrategy(FedAvg):
             "num_clients":         n,
         }
         self.round_logs.append(log)
+
+        if self.global_model is not None:
+            self.global_model.set_parameters(aggregated)
 
         return ndarrays_to_parameters(aggregated), log
