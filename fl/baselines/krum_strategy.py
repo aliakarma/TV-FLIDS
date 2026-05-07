@@ -87,6 +87,8 @@ class KrumStrategy(FedAvg):
             # Fallback to mean if too few clients
             agg = [np.mean([p[i] for p in params_list], axis=0)
                    for i in range(len(params_list[0]))]
+            if self.global_model is not None:
+                self.global_model.set_parameters(agg)
             return ndarrays_to_parameters(agg), {"round": server_round}
 
         # Pairwise squared Euclidean distances
