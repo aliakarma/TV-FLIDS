@@ -11,6 +11,7 @@ Reference: Guide §17
 import os
 import sys
 import json
+import tempfile
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -83,7 +84,9 @@ def run_ratio_sweep(
                 exp_config = copy.deepcopy(base_config)
                 exp_config["adversarial"]["attack_ratio"] = ratio
 
-                tmp_path = f"/tmp/ratio_sweep_{ratio}_{seed}.yaml"
+                tmp_path = os.path.join(
+                    tempfile.gettempdir(), f"ratio_sweep_{ratio}_{seed}.yaml"
+                )
                 with open(tmp_path, "w") as f:
                     yaml.dump(exp_config, f)
 

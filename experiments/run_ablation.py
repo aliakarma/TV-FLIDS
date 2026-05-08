@@ -15,6 +15,7 @@ import os
 import sys
 import json
 import copy
+import tempfile
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,6 +24,7 @@ if ROOT not in sys.path:
 
 import yaml
 from experiments.run_experiment import run_experiment, load_config
+from evaluation.statistical_testing import compare_methods_wilcoxon, compute_cohens_d
 
 
 ABLATION_CONFIGS = {
@@ -101,7 +103,9 @@ def run_ablation(
                 exp_config["verification"]["zscore_threshold"] = 1e9
 
             # Write modified config to temp file
-            tmp_config_path = f"/tmp/ablation_config_{seed}.yaml"
+            tmp_config_path = os.path.join(
+                tempfile.gettempdir(), f"ablation_config_{seed}.yaml"
+            )
             with open(tmp_config_path, "w") as f:
                 yaml.dump(exp_config, f)
 
@@ -142,6 +146,21 @@ def run_ablation(
               f"{np.mean(accs):.4f}±{np.std(accs):.4f}  "
               f"{np.mean(f1s):.4f}±{np.std(f1s):.4f}  "
               f"{np.mean(asrs):.4f}±{np.std(asrs):.4f}")
+
+    full_results = all_results["TV-FLIDS (Full)"]
+    print("\n[Ablation Significance vs TV-FLIDS Full]")
+    print(f"{'Ablation':<30} {'Metric':<25} {'p-value':>10} {'Sig':>5} {'d':>8}")
+    print("-" * 80)
+
+    for name, results in all_results.items():
+        if name == "TV-FLIDS (Full)":
+            continue
+        for metric in ["final_f1_macro", "final_attack_success_rate"]:
+            wtest = compare_methods_wilcoxon(full_results, results, metric)
+            d = compute_cohens_d(full_results, results, metric)
+            sig = "*" if wtest.get("significant") else "ns"
+            print(f"  {name:<28} {metric:<25} "
+                  f"{wtest.get('p_value', 1.0):>10.4f} {sig:>5} {d:>8.3f}")
 
     # Save results
     out_path = os.path.join(output_dir, "ablation_results.json")

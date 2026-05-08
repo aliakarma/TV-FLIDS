@@ -105,6 +105,93 @@ def compare_methods_wilcoxon(
         return {"statistic": 0.0, "p_value": 1.0, "significant": False, "error": str(e)}
 
 
+def compute_cohens_d(
+    results_a: List[Dict],
+    results_b: List[Dict],
+    metric: str = "final_accuracy",
+) -> float:
+    """
+    Cohen's d effect size between two method result sets.
+    """
+    vals_a = np.array([r[metric] for r in results_a if metric in r], dtype=float)
+    vals_b = np.array([r[metric] for r in results_b if metric in r], dtype=float)
+    if len(vals_a) == 0 or len(vals_b) == 0:
+        return 0.0
+    pooled_std = np.sqrt((np.std(vals_a) ** 2 + np.std(vals_b) ** 2) / 2)
+    if pooled_std < 1e-10:
+        return 0.0
+    return float((np.mean(vals_a) - np.mean(vals_b)) / pooled_std)
+
+
+def compute_bootstrap_ci(
+    results: List[Dict],
+    metric: str,
+    n_bootstrap: int = 10_000,
+    ci: float = 0.95,
+    seed: int = 42,
+) -> Tuple[float, float]:
+    """
+    Bootstrap confidence interval for a metric across seeds.
+    Returns (lower, upper) bounds at the specified CI level.
+    """
+    vals = np.array([r[metric] for r in results if metric in r], dtype=float)
+    if len(vals) == 0:
+        return 0.0, 0.0
+
+    rng = np.random.default_rng(seed)
+    boot_means = np.empty(n_bootstrap, dtype=float)
+    for i in range(n_bootstrap):
+        boot_means[i] = np.mean(rng.choice(vals, size=len(vals), replace=True))
+
+    alpha = (1 - ci) / 2
+    return (
+        float(np.percentile(boot_means, 100 * alpha)),
+        float(np.percentile(boot_means, 100 * (1 - alpha))),
+    )
+
+
+def build_results_table_extended(
+    experiment_results_dict: Dict[str, List[Dict]],
+    metrics: Optional[List[str]] = None,
+    reference_method: str = "tvflids",
+) -> Dict:
+    """
+    Full results table:
+    mean ± std | 95% CI | Cohen's d | Wilcoxon p
+    """
+    if metrics is None:
+        metrics = ["final_accuracy", "final_f1_macro", "final_attack_success_rate"]
+
+    table = {}
+    ref_results = experiment_results_dict.get(reference_method, [])
+
+    for method, results in experiment_results_dict.items():
+        row = {}
+        for m in metrics:
+            mean, std = compute_summary(results, m)
+            ci_low, ci_hi = compute_bootstrap_ci(results, m)
+            d = compute_cohens_d(ref_results, results, m) if ref_results else 0.0
+            wtest = (
+                compare_methods_wilcoxon(ref_results, results, m)
+                if ref_results and method != reference_method
+                else {}
+            )
+            row[m] = {
+                "mean": mean,
+                "std": std,
+                "ci_95": (ci_low, ci_hi),
+                "cohens_d": d,
+                "wilcoxon_p": wtest.get("p_value", None),
+                "significant": wtest.get("significant", None),
+                "formatted": (
+                    f"{mean:.4f}±{std:.4f} [{ci_low:.4f},{ci_hi:.4f}] d={d:.2f}"
+                ),
+            }
+        table[method] = row
+
+    return table
+
+
 def mcnemar_test(
     y_true: np.ndarray,
     y_pred_a: np.ndarray,

@@ -17,7 +17,7 @@ if ROOT not in sys.path:
 
 from experiments.run_experiment import run_experiment
 from evaluation.statistical_testing import (
-    build_results_table, compare_methods_wilcoxon, SEEDS
+    build_results_table_extended, compare_methods_wilcoxon, SEEDS
 )
 from evaluation.visualization import (
     figure1_convergence_curves, figure6_confusion_matrices
@@ -79,16 +79,23 @@ def run_full_comparison(
 
         all_results[strategy] = seed_results
 
-    # Print publication-ready table
+    # Print publication-ready extended table
     print("\n\n" + "="*80)
-    print("RESULTS TABLE (mean ± std across seeds)")
+    print("RESULTS TABLE (mean ± std, 95% CI, Cohen's d, Wilcoxon p)")
     print("="*80)
-    table = build_results_table(
+    table = build_results_table_extended(
         all_results,
         metrics=METRICS,
         reference_method="tvflids",
-        print_output=True,
     )
+    for method, row in table.items():
+        print(f"\n{method}:")
+        for metric in METRICS:
+            m = row[metric]
+            p_val = m["wilcoxon_p"]
+            p_str = f"{p_val:.4f}" if p_val is not None else "N/A"
+            sig = "*" if m["significant"] else "ns"
+            print(f"  {metric:<26} {m['formatted']:<45} p={p_str} {sig}")
 
     # Pairwise Wilcoxon tests: TV-FLIDS vs each baseline
     print("\n\nWilcoxon Tests (TV-FLIDS vs baselines):")
