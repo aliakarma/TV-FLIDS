@@ -106,8 +106,8 @@ def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
     client_data = partitioner.partition(X_train, y_train, num_clients, seed=seed)
 
     print(f"[Data] {dataset.upper()} | Clients={num_clients} | "
-          f"Partition={partition_type}(α={alpha}) | "
-            f"Train={X_train.shape} | Test={X_test.shape} | Val={X_val.shape}")
+          f"Partition={partition_type}(alpha={alpha}) | "
+          f"Train={X_train.shape} | Test={X_test.shape} | Val={X_val.shape}")
 
     return client_data, X_test, y_test, X_val, y_val, class_weights
 
@@ -426,7 +426,7 @@ def run_experiment(
         print(f"\n{'='*60}")
         print(f" Strategy:  {strategy_name.upper()}")
         print(f" Attack:    {attack_config_name} ({len(malicious_ids)} malicious)")
-        print(f" Dataset:   {dataset.upper()} | {partition_type}(α={alpha})")
+        print(f" Dataset:   {dataset.upper()} | {partition_type}(alpha={alpha})")
         print(f" Seed:      {seed}  |  Rounds: {n_rounds}")
         print(f"{'='*60}\n")
 
@@ -560,12 +560,15 @@ def run_experiment(
     )
 
     # ── Flower simulation ─────────────────────────────────────────────
+    sim_num_cpus = int(os.getenv("TVFLIDS_SIM_CLIENT_CPUS", "12"))
+    sim_num_gpus = float(os.getenv("TVFLIDS_SIM_CLIENT_GPUS", "0.0"))
+
     history = fl.simulation.start_simulation(
         client_fn=client_fn,
         num_clients=num_clients,
         config=fl.server.ServerConfig(num_rounds=n_rounds),
         strategy=strategy,
-        client_resources={"num_cpus": 1, "num_gpus": 0.0},
+        client_resources={"num_cpus": sim_num_cpus, "num_gpus": sim_num_gpus},
     )
 
     # ── Persist final predictions for confusion matrices ─────────────
