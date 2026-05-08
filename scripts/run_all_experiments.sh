@@ -9,12 +9,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-if command -v python >/dev/null 2>&1; then
-    PYTHON="python"
-elif command -v python3 >/dev/null 2>&1; then
-    PYTHON="python3"
-else
-    echo "Error: python executable not found in PATH."
+PYTHON=""
+for CANDIDATE in python3 python; do
+    if command -v "$CANDIDATE" >/dev/null 2>&1 && "$CANDIDATE" --version >/dev/null 2>&1; then
+        PYTHON="$CANDIDATE"
+        break
+    fi
+done
+
+if [ -z "$PYTHON" ]; then
+    echo "Error: no working python executable found in PATH."
+    echo "Tried: python3, python"
     exit 1
 fi
 
