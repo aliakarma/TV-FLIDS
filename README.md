@@ -29,27 +29,27 @@ NSL-KDD / UNSW-NB15
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Flower FL Simulation                       │
-│                                                               │
-│  Client 1..N                                                  │
-│  ┌────────────┐                                               │
-│  │ Local MLP  │──► Δw_i + val_loss_i ──────────────────────► │
-│  └────────────┘         (per round)                           │
-│                                                               │
-│  TVFLIDSStrategy (Server)                                     │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  1. VerificationModule                                  │  │
-│  │     ├─ Check 1: loss_after > loss_before?              │  │
-│  │     ├─ Check 2: cosine_sim(Δw_i, mean_Δw) > threshold? │  │
-│  │     └─ Check 3: z_score(||Δw_i||) < threshold?         │  │
-│  │  2. TrustScorer (Adaptive)                              │  │
-│  │     T_i(t) = 0.9·T_i(t-1) + 0.1·[α·S_i+β·A_i-γ·O_i]  │  │
-│  │     Meta-gradient update on α, β, γ                    │  │
-│  │  3. Weighted Aggregation                                │  │
-│  │     w^{t+1} = Σ(T_i/ΣT) · w_i                         │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                        │                                      │
-│                   Global Model w^{t+1}                        │
+│                    Flower FL Simulation                     │
+│                                                             │
+│  Client 1..N                                                │
+│  ┌────────────┐                                             │
+│  │ Local MLP  │──► Δw_i + val_loss_i ──────────────────────►│
+│  └────────────┘         (per round)                         │
+│                                                             │
+│  TVFLIDSStrategy (Server)                                   │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  1. VerificationModule                                 │ │
+│  │     ├─ Check 1: loss_after > loss_before?              │ │
+│  │     ├─ Check 2: cosine_sim(Δw_i, mean_Δw) > threshold? │ │
+│  │     └─ Check 3: z_score(||Δw_i||) < threshold?         │ │
+│  │  2. TrustScorer (Adaptive)                             │ │
+│  │     T_i(t) = 0.9·T_i(t-1) + 0.1·[α·S_i+β·A_i-γ·O_i]    │ │
+│  │     Meta-gradient update on α, β, γ                    │ │
+│  │  3. Weighted Aggregation                               │ │
+│  │     w^{t+1} = Σ(T_i/ΣT) · w_i                          │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                        │                                    │
+│                   Global Model w^{t+1}                      │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼
