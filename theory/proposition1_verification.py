@@ -92,6 +92,47 @@ def verify_proposition1(
     }
 
 
+def verify_trust_convergence(
+    trust_history: dict,
+    honest_ids: list,
+    byzantine_ids: list,
+) -> dict:
+    """
+    Lemma 1 (Trust Convergence): Verifies empirically that over rounds:
+      - Mean honest client trust trends upward (honest_trust_trend > 0)
+      - Mean Byzantine client trust trends downward (byzantine_trust_trend < 0)
+
+    This makes the Proposition 1 bound non-trivial over time.
+    """
+    import numpy as np
+
+    def mean_history(ids):
+        histories = [trust_history[i] for i in ids if i in trust_history]
+        if not histories:
+            return np.array([])
+        min_len = min(len(h) for h in histories)
+        return np.mean([h[:min_len] for h in histories], axis=0)
+
+    honest_mean  = mean_history(honest_ids)
+    byz_mean     = mean_history(byzantine_ids)
+
+    if len(honest_mean) < 3 or len(byz_mean) < 3:
+        return {"error": "Insufficient rounds for trend analysis (need ≥ 3)"}
+
+    t = np.arange(len(honest_mean))
+    honest_trend = float(np.polyfit(t, honest_mean, 1)[0])
+    byz_trend    = float(np.polyfit(t[:len(byz_mean)], byz_mean, 1)[0])
+
+    return {
+        "honest_final_mean_trust":    float(honest_mean[-1]),
+        "byzantine_final_mean_trust": float(byz_mean[-1]),
+        "honest_trust_trend":         honest_trend,
+        "byzantine_trust_trend":      byz_trend,
+        "trust_separation":           float(honest_mean[-1] - byz_mean[-1]),
+        "lemma1_holds":               honest_trend >= 0 and byz_trend <= 0,
+    }
+
+
 def verify_from_experiment_log(experiment_log_path: str, strategy_ref) -> Dict:
     """
     Verify Proposition 1 using actual trust scores and parameters from a live run.

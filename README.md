@@ -286,6 +286,20 @@ python scripts/generate_tables.py \
 python scripts/check_results.py
 ```
 
+## Theoretical Verification
+
+Proposition 1 and Lemma 1 (trust convergence) can be verified numerically:
+
+```bash
+# Synthetic verification (no data required)
+python theory/proposition1_verification.py
+
+# Full theory validation suite
+python scripts/run_theory_validation.py
+```
+
+Results are saved to `results/tables/proposition1_real.json`.
+
 ---
 
 ## Available Strategies
