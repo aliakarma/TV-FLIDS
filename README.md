@@ -11,6 +11,17 @@ A production-ready implementation of a Byzantine-resilient Federated Learning sy
 
 ---
 
+## Hardware Requirements
+
+| Setup | Min RAM | Recommended GPU | Est. Full Run Time |
+|-------|---------|----------------|--------------------|
+| CPU only | 8 GB | — | ~8 hours |
+| GPU (8 GB VRAM) | 16 GB | NVIDIA RTX 3080+ | ~90 min |
+
+Set CPU parallelism: `export TVFLIDS_SIM_CLIENT_CPUS=4`
+
+---
+
 ## Overview
 
 Standard Federated Learning is vulnerable to adversarial clients that poison the global model. TV-FLIDS addresses this by introducing:
@@ -357,18 +368,18 @@ verification:
 
 ---
 
-## Results (NSL-KDD, 30% Label Flip, Non-IID α=0.5, 5 seeds)
+## Expected Results
 
-| Strategy | Accuracy | F1-Macro | ASR | Wilcoxon p vs TV-FLIDS |
-|---|---|---|---|---|
-| FedAvg (clean) | 0.930 ± 0.010 | 0.880 ± 0.015 | 0.000 ± 0.000 | — |
-| FedAvg (attacked) | 0.610 ± 0.011 | 0.520 ± 0.012 | 0.720 ± 0.015 | p = 0.014 |
-| Krum | 0.820 ± 0.010 | 0.750 ± 0.011 | 0.380 ± 0.010 | p = 0.021 |
-| FLTrust | 0.860 ± 0.012 | 0.810 ± 0.014 | 0.280 ± 0.010 | p = 0.035 |
-| FoolsGold | 0.800 ± 0.015 | 0.740 ± 0.016 | 0.420 ± 0.020 | p = 0.019 |
-| FLAME | 0.830 ± 0.012 | 0.760 ± 0.013 | 0.350 ± 0.015 | p = 0.025 |
-| RFA | 0.810 ± 0.014 | 0.750 ± 0.015 | 0.400 ± 0.018 | p = 0.020 |
-| **TV-FLIDS** | **0.880 ± 0.010** | **0.850 ± 0.012** | **0.190 ± 0.010** | ref |
+| Strategy | Accuracy | F1-Macro | ASR |
+|---|---|---|---|
+| FedAvg (no defense) | 0.6026 ± 0.0114 | 0.5726 ± 0.0089 | 0.4012 ± 0.0253 |
+| Krum | 0.8170 ± 0.0089 | 0.7891 ± 0.0108 | 0.1650 ± 0.0243 |
+| Trimmed Mean | 0.8038 ± 0.0097 | 0.7755 ± 0.0104 | 0.2157 ± 0.0404 |
+| FLTrust | 0.8642 ± 0.0121 | 0.8349 ± 0.0107 | 0.1357 ± 0.0388 |
+| FoolsGold | 0.8081 ± 0.0109 | 0.7794 ± 0.0119 | 0.1908 ± 0.0352 |
+| FLAME | 0.8256 ± 0.0082 | 0.8016 ± 0.0095 | 0.1878 ± 0.0308 |
+| RFA | 0.8082 ± 0.0117 | 0.7811 ± 0.0130 | 0.2016 ± 0.0226 |
+| **TV-FLIDS** | **0.8801 ± 0.0095** | **0.8502 ± 0.0141** | **0.1908 ± 0.0035** |
 
 *Values are mean ± std over 5 seeds (42, 123, 456, 789, 1337).  
 Full results: `results/tables/full_comparison_results.json`*
@@ -428,17 +439,32 @@ tv-flids/
 
 ---
 
+## Known Limitations
+
+- **Byzantine threshold**: TV-FLIDS degrades when adversarial fraction exceeds ~50%.  
+  At f/N > 0.5, the verification gate cannot reliably separate honest and malicious updates.
+- **IID server assumption**: The server validation set used for trust scoring must be  
+  class-balanced and drawn from the same distribution as the global test set.  
+  Distribution shift between server val and test data is not handled.
+- **Single model architecture**: All clients use the same MLP architecture.  
+  Heterogeneous model support (e.g., different depths) is out of scope.
+- **NSL-KDD age**: NSL-KDD is a 2009-era dataset. Performance on modern IoT traffic  
+  datasets (e.g., CIC-IoT23) is not evaluated.
+
+---
+
 ## Citation
 
 If you use this code in your research, please cite:
 
 ```bibtex
-@article{tvflids2024,
-  title   = {TV-FLIDS: Trust-Aware and Verifiable Federated Intrusion Detection
-             for IoT under Adversarial Clients},
+@inproceedings{tvflids2025,
+  title   = {TV-FLIDS: Trust-Aware and Verifiable Federated Learning for
+             Intrusion Detection under Adaptive Byzantine Clients},
   author  = {Ali Akarma},
-  journal = {},
-  year    = {}
+  booktitle = {},
+  year    = {2025},
+  url     = {https://github.com/aliakarma/tv-flids}
 }
 ```
 
