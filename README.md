@@ -1,5 +1,6 @@
 # TV-FLIDS: Trust-Aware & Verifiable Federated Intrusion Detection System
 
+[![CI](https://github.com/aliakarma/tv-flids/actions/workflows/ci.yml/badge.svg)](https://github.com/aliakarma/tv-flids/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.10-blue.svg)](https://python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1.0-orange.svg)](https://pytorch.org)
 [![Flower](https://img.shields.io/badge/Flower-1.6.0-green.svg)](https://flower.dev)
