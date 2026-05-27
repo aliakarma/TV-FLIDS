@@ -306,8 +306,10 @@ tv-flids/
 │   ├── fl_config.yaml
 │   └── dataset_config.yaml
 ├── data/
-│   ├── preprocessing/         # NSL-KDD, UNSW-NB15, MNIST pipelines
+│   ├── preprocessing/         # NSL-KDD, UNSW-NB15 pipelines
 │   └── partitioning.py        # IID & Non-IID (Dirichlet) partitioners
+├── extras/
+│   └── mnist_fl_pipeline.py          # MNIST FL benchmark (not used in paper)
 ├── models/
 │   └── mlp.py                 # IDSMLP + IDSBiLSTM architectures
 ├── fl/
@@ -325,6 +327,9 @@ tv-flids/
 │   ├── statistical_testing.py # Wilcoxon, McNemar, multi-seed reporting
 │   ├── visualization.py       # 6 paper-ready figure generators
 │   └── overhead.py            # Time/communication cost analysis
+├── theory/
+│   ├── proposition1_verification.py  # Prop. 1 numerical verification
+│   └── convergence_analysis.py       # Convergence rate (τ) fitting
 ├── experiments/
 │   ├── run_experiment.py      # Main experiment runner (start here)
 │   ├── run_ablation.py        # A1-A5 ablation studies

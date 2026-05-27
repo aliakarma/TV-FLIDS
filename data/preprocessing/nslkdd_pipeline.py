@@ -201,7 +201,8 @@ if __name__ == "__main__":
     train_path = "data/raw/KDDTrain+.txt"
     test_path = "data/raw/KDDTest+.txt"
     download_nslkdd(train_path, test_path)
-    X_tr, y_tr, X_te, y_te, scaler, encoders, weights = build_pipeline(
-        train_path, test_path
-    )
-    print(f"Pipeline complete. Train: {X_tr.shape}, Test: {X_te.shape}")
+    (X_tr, y_tr, X_val, y_val,
+     X_te, y_te, scaler, encoders, weights) = build_pipeline(train_path, test_path)
+    print(f"[Pipeline] Train: {X_tr.shape} | Val: {X_val.shape} | Test: {X_te.shape}")
+    print(f"[Classes]  Train labels: {dict(zip(*[v.tolist() for v in __import__('numpy').unique(y_tr, return_counts=True)]))}")
+
