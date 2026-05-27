@@ -96,6 +96,19 @@ python -c "import torch; import flwr; print('PyTorch:', torch.__version__, '| Fl
 make smoke
 ```
 
+## Performance Notes
+
+- **Simulation speed**: TV-FLIDS adds ~15% overhead over FedAvg per round  
+  (verification gate + trust scoring; evaluation is shared).
+- **CPU parallelism**: Set `TVFLIDS_SIM_CLIENT_CPUS` to at most `nproc / 2`  
+  to avoid Ray resource starvation:
+  ```bash
+  export TVFLIDS_SIM_CLIENT_CPUS=4
+  python experiments/run_experiment.py --strategy tvflids --attack label_flip_30
+  ```
+- **GPU usage**: Set `TVFLIDS_SIM_CLIENT_GPUS=0.1` per virtual client  
+  if your GPU has ≥ 8 GB VRAM.
+
 ---
 
 ## Dataset Setup

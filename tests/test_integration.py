@@ -19,13 +19,16 @@ class TestEndToEnd(unittest.TestCase):
             num_rounds=2,
             verbose=False,
         )
-        self.assertIn(
-            "final_accuracy",
-            result,
-            "final_accuracy missing - evaluate_fn not running",
-        )
-        self.assertGreater(result["final_accuracy"], 0.0)
+        self.assertIn("final_accuracy", result,
+                      "final_accuracy missing — evaluate_fn not running")
+        self.assertGreater(result["final_accuracy"], 0.0,
+                           "Accuracy is 0.0 — model not training")
         self.assertIn("final_f1_macro", result)
+        self.assertGreater(result["final_f1_macro"], 0.0,
+                           "F1-Macro is 0.0 — metric computation broken")
+        self.assertIn("num_rounds", result)
+        self.assertEqual(result["num_rounds"], 2,
+                         "Round count mismatch — evaluate_fn not called each round")
 
     def test_tvflids_produces_metrics(self):
         from experiments.run_experiment import run_experiment

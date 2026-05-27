@@ -4,7 +4,6 @@ Checks: (1) loss consistency, (2) cosine similarity, (3) z-score norm outlier.
 Reference: Guide §8
 """
 
-import copy
 import numpy as np
 import torch
 import torch.nn as nn
@@ -95,16 +94,17 @@ class VerificationModule:
     # ── Private helpers ────────────────────────────────────────────────────
     def _eval_params(self, model: nn.Module, params: List[np.ndarray],
                      val_loader, device: torch.device) -> float:
-        tmp = copy.deepcopy(model)
-        tmp.set_parameters(params)
-        tmp.eval()
+        orig = model.get_parameters()
+        model.set_parameters(params)
+        model.eval()
         criterion = nn.CrossEntropyLoss()
         total, n = 0.0, 0
         with torch.no_grad():
             for X, y in val_loader:
-                total += criterion(tmp(X.to(device)), y.to(device)).item()
+                total += criterion(model(X.to(device)), y.to(device)).item()
                 n += 1
-        del tmp
+        model.set_parameters(orig)
+        model.train()
         return total / max(n, 1)
 
     def _mean_update(self, updates: List[List[np.ndarray]]) -> List[np.ndarray]:

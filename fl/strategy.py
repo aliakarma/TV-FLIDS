@@ -130,8 +130,8 @@ class TVFLIDSStrategy(FedAvg):
         # ── STEP 2: Trust signals ─────────────────────────────────────
         mean_upd = [np.mean([u[i] for u in a_upds], axis=0) for i in range(len(global_params))]
         sim  = self.trust_scorer.compute_similarity_scores(a_upds, mean_upd)
-        va   = [self._eval_model(p) for p in a_pars]
-        acc  = self.trust_scorer.compute_accuracy_scores(global_loss, va)
+        client_val_losses = [self._eval_model(p) for p in a_pars]  # compute ONCE
+        acc  = self.trust_scorer.compute_accuracy_scores(global_loss, client_val_losses)
         anom = self.trust_scorer.compute_anomaly_scores(a_upds)
 
         # ── STEP 3: Update trust + optional meta-gradient ─────────────
@@ -140,18 +140,14 @@ class TVFLIDSStrategy(FedAvg):
         adaptive_snap = None
         if self.adaptive and isinstance(self.trust_scorer, AdaptiveTrustScorer):
             _sim, _acc, _anom = sim.copy(), acc.copy(), anom.copy()
-            _apars = a_pars[:]
-            _gpar  = global_params
+            _cached_losses = client_val_losses[:]   # snapshot in closure
 
             def _val_fn(alpha, beta, gamma):
                 """
                 Differentiable trust-weighted aggregation loss.
                 Connects alpha/beta/gamma to validation loss via per-client val losses.
                 """
-                per_client_losses = torch.tensor(
-                    [self._eval_model(_apars[i]) for i in range(len(a_ids))],
-                    dtype=torch.float32,
-                )
+                per_client_losses = torch.tensor(_cached_losses, dtype=torch.float32)
                 sim_t = torch.tensor(_sim, dtype=torch.float32)
                 acc_t = torch.tensor(_acc, dtype=torch.float32)
                 anom_t = torch.tensor(_anom, dtype=torch.float32)
