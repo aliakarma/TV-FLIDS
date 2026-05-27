@@ -43,7 +43,10 @@ class KrumStrategy(FedAvg):
         super().__init__(**kwargs)
         self.n = num_clients
         self.f = num_byzantine
-        self.m = m if m is not None else max(1, num_clients - num_byzantine - 2)
+        n_active = max(2, int(num_clients * 0.5))  # typical active clients per round
+        self.m = m if m is not None else max(1, n_active - num_byzantine - 2)
+        # Ensure at least 1 client is always selected
+        self.m = max(1, self.m)
         self.global_model = global_model
         self.attack_type = attack_type
         self.attack_kwargs = attack_kwargs or {}

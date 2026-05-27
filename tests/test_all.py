@@ -394,6 +394,28 @@ class TestDeterminism(unittest.TestCase):
         pass   # Intentionally soft — log values for inspection only
 
 
+class TestBaselineConvergence(unittest.TestCase):
+    """Verify all baselines produce non-trivial accuracy on clean data (2 rounds)."""
+
+    STRATEGIES = ["fedavg", "krum", "trimmed_mean", "fltrust", "foolsgold"]
+
+    def test_clean_convergence(self):
+        from experiments.run_experiment import run_experiment
+        for strategy in self.STRATEGIES:
+            with self.subTest(strategy=strategy):
+                result = run_experiment(
+                    strategy_name=strategy,
+                    attack_config_name="no_attack",
+                    seed=42,
+                    num_rounds=2,
+                    verbose=False,
+                )
+                self.assertGreater(
+                    result.get("final_accuracy", 0), 0.1,
+                    f"{strategy} accuracy ≤ 0.1 on clean data — likely broken"
+                )
+
+
 # ── Statistical Testing Tests ─────────────────────────────────────────────────
 
 class TestStatisticalTesting(unittest.TestCase):

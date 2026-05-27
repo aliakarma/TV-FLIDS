@@ -297,6 +297,8 @@ python scripts/check_results.py
 | `trimmed_mean` | Yin et al., ICML 2018 | Coordinate-wise robust mean |
 | `fltrust` | Cao et al., NDSS 2021 | Server-root trust bootstrapping |
 | `foolsgold` | Fung et al., 2018 | Sybil resistance via history |
+| `flame` | Nguyen et al., USENIX Security 2022 | HDBSCAN + adaptive noise |
+| `rfa` | Pillutla et al., IEEE TSP 2022 | Geometric median (Weiszfeld) |
 | `tvflids` | **This work** | 3-criteria gate + adaptive trust |
 | `tvflids_fixed` | **This work** | TV-FLIDS with fixed α, β, γ |
 

@@ -33,6 +33,8 @@ class FLAMEStrategy(FedAvg):
     Args:
         num_clients:        Total federation size (used for defaults).
         min_cluster_size:   HDBSCAN minimum cluster size (defaults to 50% of active clients).
+                            Note: This parameter is sensitive. Setting it too high may cause
+                            HDBSCAN to classify all updates as noise if the active client pool is small.
         min_samples:        HDBSCAN min_samples.
         noise_multiplier:   Noise scale for adaptive Gaussian injection.
         global_model:       Global model for computing updates.
