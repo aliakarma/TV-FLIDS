@@ -7,6 +7,17 @@ import os
 import random
 import numpy as np
 import torch
+import sys
+
+if sys.version_info[:2] != (3, 10):
+    import warnings
+    warnings.warn(
+        f"TV-FLIDS is tested on Python 3.10.x. "
+        f"Detected Python {sys.version_info.major}.{sys.version_info.minor}. "
+        "Results may differ.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
 
 
 def set_all_seeds(seed: int = 42) -> None:

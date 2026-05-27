@@ -73,33 +73,27 @@ NSL-KDD / UNSW-NB15
 
 ## Installation
 
-### Prerequisites
-- Conda (recommended) or Python 3.10
-- NVIDIA GPU optional but recommended for speed
-
-### Setup (VS Code Terminal)
+### Option A — Conda (Recommended)
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/aliakarma/tv-flids.git
-cd tv-flids
-
-# 2. Create conda environment
-conda create -n tvflids python=3.10
+conda env create -f environment.yml
 conda activate tvflids
+make data
+```
 
-# 3. Install PyTorch (GPU version — adjust cuda version if needed)
-pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
+### Option B — pip
 
-# For CPU-only:
-# pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu
-
-# 4. Install all dependencies
+```bash
 pip install -r requirements.txt
+bash scripts/download_nslkdd.sh
+```
 
-# 5. Verify installation
+### Verify Installation
+
+```bash
 python -c "import torch; import flwr; print('PyTorch:', torch.__version__, '| Flower:', flwr.__version__)"
-python -c "import torch; print('GPU available:', torch.cuda.is_available())"
+# Expected: PyTorch: 2.1.0 | Flower: 1.6.0
+make smoke
 ```
 
 ---
