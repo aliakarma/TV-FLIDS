@@ -375,6 +375,7 @@ def run_experiment(
     config_path: str = "config/fl_config.yaml",
     log_dir: Optional[str] = None,
     verbose: bool = True,
+    model_type: str = "mlp",
 ) -> Dict:
     """
     Run a complete FL experiment end-to-end.
@@ -461,7 +462,12 @@ def run_experiment(
     model_kwargs = {"input_dim": input_dim, "num_classes": num_classes}
 
     # ── Global model ──────────────────────────────────────────────────
-    global_model = IDSMLP(**model_kwargs).to(device)
+    from models.mlp import build_model
+    global_model = build_model(
+        model_type=model_type,
+        input_dim=input_dim,
+        num_classes=num_classes,
+    ).to(device)
 
     # ── Server validation DataLoader ──────────────────────────────────
     X_val_t = torch.tensor(X_val, dtype=torch.float32)
@@ -726,6 +732,9 @@ Examples:
                         help="Override log directory")
     parser.add_argument("--quiet",      action="store_true",
                         help="Suppress verbose output")
+    parser.add_argument("--model",      type=str, default="mlp",
+                        choices=["mlp", "bilstm"],
+                        help="Model architecture (default: mlp)")
 
     args = parser.parse_args()
 
@@ -740,6 +749,7 @@ Examples:
         config_path=args.config,
         log_dir=args.log_dir,
         verbose=not args.quiet,
+        model_type=args.model,
     )
 
     print("\n[Done] Final results:")

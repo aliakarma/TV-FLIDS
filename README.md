@@ -57,6 +57,17 @@ NSL-KDD / UNSW-NB15
   Metrics: Accuracy, F1-Macro, Attack Success Rate
 ```
 
+### Model Selection
+
+The default model is `IDSMLP` (4-layer MLP with BatchNorm + Dropout).  
+An experimental `IDSBiLSTM` is available for sequential traffic analysis:
+
+```bash
+python experiments/run_experiment.py --strategy tvflids --attack label_flip_30 --model bilstm
+```
+
+The paper results use `--model mlp` (default).
+
 ---
 
 ## Features
