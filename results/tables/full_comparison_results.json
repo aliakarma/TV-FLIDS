@@ -1,0 +1,341 @@
+{
+  "raw": {
+    "fedavg": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.599446307296031,
+        "final_f1_macro": 0.5668330717785028,
+        "final_attack_success_rate": 0.41865014900473296,
+        "strategy": "fedavg",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.5900529744303091,
+        "final_f1_macro": 0.5615032572707084,
+        "final_attack_success_rate": 0.3775354816124687,
+        "strategy": "fedavg",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.6230934972935618,
+        "final_f1_macro": 0.5876951851435757,
+        "final_attack_success_rate": 0.42556041385357435,
+        "strategy": "fedavg",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.5954157843152211,
+        "final_f1_macro": 0.5718819531770419,
+        "final_attack_success_rate": 0.42003637504079,
+        "strategy": "fedavg",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.604966962149808,
+        "final_f1_macro": 0.5753092652808767,
+        "final_attack_success_rate": 0.3641158628102821,
+        "strategy": "fedavg",
+        "attack": "label_flip_30"
+      }
+    ],
+    "krum": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.8271650581230244,
+        "final_f1_macro": 0.796836241986616,
+        "final_attack_success_rate": 0.13542123764148373,
+        "strategy": "krum",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.8045491783406434,
+        "final_f1_macro": 0.7748342489753463,
+        "final_attack_success_rate": 0.20119645051644208,
+        "strategy": "krum",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.8262961351057317,
+        "final_f1_macro": 0.8046486618470667,
+        "final_attack_success_rate": 0.1410010879545503,
+        "strategy": "krum",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.8170892771402004,
+        "final_f1_macro": 0.789185529963654,
+        "final_attack_success_rate": 0.1694324854679065,
+        "strategy": "krum",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.8099163829958634,
+        "final_f1_macro": 0.7799720865202667,
+        "final_attack_success_rate": 0.1779449364744222,
+        "strategy": "krum",
+        "attack": "label_flip_30"
+      }
+    ],
+    "trimmed_mean": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.7957990719278418,
+        "final_f1_macro": 0.7691750176921514,
+        "final_attack_success_rate": 0.23253336540592756,
+        "strategy": "trimmed_mean",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.8137770663377949,
+        "final_f1_macro": 0.7768897327853007,
+        "final_attack_success_rate": 0.2213955254231248,
+        "strategy": "trimmed_mean",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.7917466719095954,
+        "final_f1_macro": 0.7657412449891632,
+        "final_attack_success_rate": 0.23987239057836407,
+        "strategy": "trimmed_mean",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.8161543903835647,
+        "final_f1_macro": 0.7949680398729211,
+        "final_attack_success_rate": 0.13679200490309892,
+        "strategy": "trimmed_mean",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.8015476086364733,
+        "final_f1_macro": 0.7707459847410261,
+        "final_attack_success_rate": 0.2480615056801851,
+        "strategy": "trimmed_mean",
+        "attack": "label_flip_30"
+      }
+    ],
+    "fltrust": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.8798343212156462,
+        "final_f1_macro": 0.843527299011024,
+        "final_attack_success_rate": 0.15816365643041277,
+        "strategy": "fltrust",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.8677402550979088,
+        "final_f1_macro": 0.8346900825929883,
+        "final_attack_success_rate": 0.08627706732168944,
+        "strategy": "fltrust",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.8569737253394237,
+        "final_f1_macro": 0.8346434130342808,
+        "final_attack_success_rate": 0.13328186135504969,
+        "strategy": "fltrust",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.8712964140423106,
+        "final_f1_macro": 0.8462925130820488,
+        "final_attack_success_rate": 0.10474495848217623,
+        "strategy": "fltrust",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.8449974955902467,
+        "final_f1_macro": 0.8155943935756208,
+        "final_attack_success_rate": 0.19579391720294773,
+        "strategy": "fltrust",
+        "attack": "label_flip_30"
+      }
+    ],
+    "foolsgold": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.7922124101844883,
+        "final_f1_macro": 0.7627426520869571,
+        "final_attack_success_rate": 0.25256171538790606,
+        "strategy": "foolsgold",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.8197029361273817,
+        "final_f1_macro": 0.7937037878630363,
+        "final_attack_success_rate": 0.14751605223270436,
+        "strategy": "foolsgold",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.8095605986634766,
+        "final_f1_macro": 0.7790683497405901,
+        "final_attack_success_rate": 0.16916614522969547,
+        "strategy": "foolsgold",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.7995645982853306,
+        "final_f1_macro": 0.7703493302790699,
+        "final_attack_success_rate": 0.19675845734428465,
+        "strategy": "foolsgold",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.8194132504793076,
+        "final_f1_macro": 0.7913022506804436,
+        "final_attack_success_rate": 0.18786806112879714,
+        "strategy": "foolsgold",
+        "attack": "label_flip_30"
+      }
+    ],
+    "flame": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.8300505905366911,
+        "final_f1_macro": 0.8055737303662907,
+        "final_attack_success_rate": 0.19240385098079718,
+        "strategy": "flame",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.8263534156666753,
+        "final_f1_macro": 0.8048492158636869,
+        "final_attack_success_rate": 0.20101956870845716,
+        "strategy": "flame",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.8204282246080005,
+        "final_f1_macro": 0.7888803872723484,
+        "final_attack_success_rate": 0.15354828970587472,
+        "strategy": "flame",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.8136539579800653,
+        "final_f1_macro": 0.793250813082637,
+        "final_attack_success_rate": 0.23615432084498747,
+        "strategy": "flame",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.837583081697991,
+        "final_f1_macro": 0.8154097757040819,
+        "final_attack_success_rate": 0.15582386605498233,
+        "strategy": "flame",
+        "attack": "label_flip_30"
+      }
+    ],
+    "rfa": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.8037254220263326,
+        "final_f1_macro": 0.7700891686895059,
+        "final_attack_success_rate": 0.1580967876485454,
+        "strategy": "rfa",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.8288832661606748,
+        "final_f1_macro": 0.8051638288372903,
+        "final_attack_success_rate": 0.2085530687164412,
+        "strategy": "rfa",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.8059025047442476,
+        "final_f1_macro": 0.778387858675812,
+        "final_attack_success_rate": 0.20761028156791644,
+        "strategy": "rfa",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.7930652589310202,
+        "final_f1_macro": 0.7691999090104956,
+        "final_attack_success_rate": 0.20930880559491225,
+        "strategy": "rfa",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.8092924917663973,
+        "final_f1_macro": 0.7825214422267686,
+        "final_attack_success_rate": 0.22430250774709865,
+        "strategy": "rfa",
+        "attack": "label_flip_30"
+      }
+    ],
+    "tvflids": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.8835273595163898,
+        "final_f1_macro": 0.8563543473947041,
+        "final_attack_success_rate": 0.18556272259169748,
+        "strategy": "tvflids",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.8674112470046785,
+        "final_f1_macro": 0.8322433849084064,
+        "final_attack_success_rate": 0.1902369787304841,
+        "strategy": "tvflids",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.8741204540261943,
+        "final_f1_macro": 0.8385587106447651,
+        "final_attack_success_rate": 0.19161567073544572,
+        "strategy": "tvflids",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.8794401946281324,
+        "final_f1_macro": 0.8513943364617867,
+        "final_attack_success_rate": 0.19019787578147382,
+        "strategy": "tvflids",
+        "attack": "label_flip_30"
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.8957714527619698,
+        "final_f1_macro": 0.8725964013510589,
+        "final_attack_success_rate": 0.1963554693493323,
+        "strategy": "tvflids",
+        "attack": "label_flip_30"
+      }
+    ]
+  },
+  "table": {}
+}

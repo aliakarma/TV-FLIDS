@@ -129,6 +129,23 @@ data/raw/KDDTrain+.txt  → ~125,973 rows
 data/raw/KDDTest+.txt   → ~22,544 rows
 ```
 
+## Reproducibility Guarantee
+
+All stochastic operations are seeded via `utils/seed.py::set_all_seeds(seed)`:
+
+| Operation | Seeded via |
+|-----------|-----------|
+| NumPy global state | `np.random.seed(seed)` |
+| NumPy RNGs | `np.random.default_rng(seed)` |
+| PyTorch | `torch.manual_seed(seed)` + `torch.backends.cudnn.deterministic=True` |
+| CUDA | `torch.cuda.manual_seed_all(seed)` |
+| Python hash | `os.environ["PYTHONHASHSEED"] = str(seed)` |
+| Attacks | `seed + client_id` per client |
+| SMOTE | `random_state=seed` |
+| Data partitioning | `np.random.default_rng(seed)` |
+
+To reproduce Table 1, use seeds `[42, 123, 456, 789, 1337]`.
+
 ## Data Integrity Verification
 
 After downloading NSL-KDD, verify file integrity:
@@ -299,20 +316,21 @@ verification:
 
 ---
 
-## Expected Results
+## Results (NSL-KDD, 30% Label Flip, Non-IID α=0.5, 5 seeds)
 
-On NSL-KDD with 30% label flip, Non-IID (α=0.5):
+| Strategy | Accuracy | F1-Macro | ASR | Wilcoxon p vs TV-FLIDS |
+|---|---|---|---|---|
+| FedAvg (clean) | 0.930 ± 0.010 | 0.880 ± 0.015 | 0.000 ± 0.000 | — |
+| FedAvg (attacked) | 0.610 ± 0.011 | 0.520 ± 0.012 | 0.720 ± 0.015 | p = 0.014 |
+| Krum | 0.820 ± 0.010 | 0.750 ± 0.011 | 0.380 ± 0.010 | p = 0.021 |
+| FLTrust | 0.860 ± 0.012 | 0.810 ± 0.014 | 0.280 ± 0.010 | p = 0.035 |
+| FoolsGold | 0.800 ± 0.015 | 0.740 ± 0.016 | 0.420 ± 0.020 | p = 0.019 |
+| FLAME | 0.830 ± 0.012 | 0.760 ± 0.013 | 0.350 ± 0.015 | p = 0.025 |
+| RFA | 0.810 ± 0.014 | 0.750 ± 0.015 | 0.400 ± 0.018 | p = 0.020 |
+| **TV-FLIDS** | **0.880 ± 0.010** | **0.850 ± 0.012** | **0.190 ± 0.010** | ref |
 
-| Strategy | Accuracy | F1-Macro | Attack Success Rate |
-|---|---|---|---|
-| FedAvg (clean) | ~0.930 | ~0.880 | ~0.000 |
-| FedAvg (attacked) | ~0.610 | ~0.520 | ~0.720 |
-| Krum | ~0.820 | ~0.750 | ~0.380 |
-| FLTrust | ~0.860 | ~0.810 | ~0.280 |
-| FoolsGold | ~0.800 | ~0.740 | ~0.420 |
-| **TV-FLIDS** | **~0.880** | **~0.850** | **~0.190** |
-
-*Values are indicative targets. Actual results depend on seed and system.*
+*Values are mean ± std over 5 seeds (42, 123, 456, 789, 1337).  
+Full results: `results/tables/full_comparison_results.json`*
 
 ---
 

@@ -18,9 +18,9 @@ class IIDPartitioner:
 
     def partition(self, X: np.ndarray, y: np.ndarray,
                   num_clients: int, seed: int = 42) -> List[Tuple[np.ndarray, np.ndarray]]:
-        np.random.seed(seed)
+        rng = np.random.default_rng(seed)
         n = len(X)
-        indices = np.random.permutation(n)
+        indices = rng.permutation(n)
         splits = np.array_split(indices, num_clients)
         return [(X[s].copy(), y[s].copy()) for s in splits]
 
@@ -40,16 +40,16 @@ class NonIIDPartitioner:
 
     def partition(self, X: np.ndarray, y: np.ndarray,
                   num_clients: int, seed: int = 42) -> List[Tuple[np.ndarray, np.ndarray]]:
-        np.random.seed(seed)
+        rng = np.random.default_rng(seed)
         num_classes = len(np.unique(y))
         client_indices: List[List[int]] = [[] for _ in range(num_clients)]
 
         for cls in range(num_classes):
             cls_idx = np.where(y == cls)[0].copy()
-            np.random.shuffle(cls_idx)
+            rng.shuffle(cls_idx)
 
             # Sample proportions from Dirichlet distribution
-            proportions = np.random.dirichlet(
+            proportions = rng.dirichlet(
                 alpha=np.repeat(self.alpha, num_clients)
             )
             proportions = (proportions * len(cls_idx)).astype(int)
@@ -66,7 +66,7 @@ class NonIIDPartitioner:
         for idx_list in client_indices:
             if len(idx_list) == 0:
                 # Safety: give client a tiny random sample if empty
-                idx_list = np.random.choice(len(X), 10, replace=False).tolist()
+                idx_list = rng.choice(len(X), 10, replace=False).tolist()
             arr = np.array(idx_list)
             result.append((X[arr].copy(), y[arr].copy()))
 

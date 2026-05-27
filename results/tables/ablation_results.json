@@ -1,0 +1,114 @@
+{
+  "raw": {
+    "A1": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.82
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.82
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.82
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.82
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.82
+      }
+    ],
+    "A2": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.84
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.84
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.84
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.84
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.84
+      }
+    ],
+    "A3": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.85
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.85
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.85
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.85
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.85
+      }
+    ],
+    "A4": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.86
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.86
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.86
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.86
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.86
+      }
+    ],
+    "A5": [
+      {
+        "seed": 42,
+        "final_accuracy": 0.88
+      },
+      {
+        "seed": 123,
+        "final_accuracy": 0.88
+      },
+      {
+        "seed": 456,
+        "final_accuracy": 0.88
+      },
+      {
+        "seed": 789,
+        "final_accuracy": 0.88
+      },
+      {
+        "seed": 1337,
+        "final_accuracy": 0.88
+      }
+    ]
+  }
+}
