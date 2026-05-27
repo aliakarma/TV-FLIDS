@@ -129,6 +129,17 @@ data/raw/KDDTrain+.txt  → ~125,973 rows
 data/raw/KDDTest+.txt   → ~22,544 rows
 ```
 
+## Data Integrity Verification
+
+After downloading NSL-KDD, verify file integrity:
+
+```bash
+python scripts/verify_data.py
+```
+
+Expected SHA-256 hashes are recorded in `scripts/verify_data.py`.
+If the check fails, re-run `bash scripts/download_nslkdd.sh`.
+
 ### UNSW-NB15 (Secondary — optional)
 Download from: https://research.unsw.edu.au/projects/unsw-nb15-dataset
 Place at: `data/raw/UNSW_NB15_training-set.csv` and `data/raw/UNSW_NB15_testing-set.csv`

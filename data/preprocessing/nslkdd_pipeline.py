@@ -136,8 +136,17 @@ def apply_smote(X: np.ndarray, y: np.ndarray, random_state: int = 42):
     if not _SMOTE_AVAILABLE:
         print("[Warning] imbalanced-learn not installed. Skipping SMOTE.")
         return X, y
-    smote = SMOTE(random_state=random_state, k_neighbors=min(3, min(np.bincount(y)) - 1))
+    counts = np.bincount(y)
+    min_count = int(counts.min())
+    if min_count < 2:
+        print(f"[SMOTE] Skipped: minimum class count = {min_count} "
+              f"(class {int(counts.argmin())}). Need >= 2 samples.")
+        return X, y
+    k = min(3, min_count - 1)
+    smote = SMOTE(random_state=random_state, k_neighbors=k)
     X_res, y_res = smote.fit_resample(X, y)
+    print(f"[SMOTE] Applied k_neighbors={k}. "
+          f"Samples: {len(X)} -> {len(X_res)}")
     return X_res.astype(np.float32), y_res.astype(np.int64)
 
 

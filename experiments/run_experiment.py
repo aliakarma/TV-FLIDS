@@ -139,6 +139,15 @@ def make_client_fn(
 
         # If local val is empty, use a tiny slice of training
         if len(X_lv) == 0:
+            import warnings
+            warnings.warn(
+                f"[Client {client_id}] Local val set is empty after 80/20 split "
+                f"(client has {len(X_c)} samples total). "
+                "Falling back to 50 samples from server validation set. "
+                "This client's local val loss signal may be slightly inflated.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             X_lv, y_lv = X_val[:50], y_val[:50]
 
         is_malicious = client_id in malicious_ids

@@ -71,17 +71,15 @@ class ExperimentMetrics:
     ) -> Tuple[str, np.ndarray]:
         """Generate final classification report and confusion matrix."""
         n_classes = len(self.class_names)
-        labels_present = sorted(set(y_true) | set(y_pred))
-        names = [self.class_names[i] for i in labels_present
-                 if i < len(self.class_names)]
+        all_labels = list(range(n_classes))
 
         report = classification_report(
             y_true, y_pred,
-            labels=labels_present,
-            target_names=names,
+            labels=all_labels,
+            target_names=self.class_names,
             zero_division=0,
         )
-        cm = confusion_matrix(y_true, y_pred, labels=list(range(n_classes)))
+        cm = confusion_matrix(y_true, y_pred, labels=all_labels)
         return report, cm
 
     def get_metric_series(self, metric: str) -> List[float]:
