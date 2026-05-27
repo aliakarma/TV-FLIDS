@@ -50,6 +50,11 @@ class ExperimentLogger:
         config_path = os.path.join(self.log_dir, "config.json")
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2, default=str)
+        import hashlib, json as _json
+        config_str = _json.dumps(config, sort_keys=True, default=str)
+        config_hash = hashlib.sha256(config_str.encode()).hexdigest()[:12]
+        self.config["_config_hash"] = config_hash
+        print(f"[Logger] Config hash: {config_hash}")
 
     def log_round(self, round_num: int, metrics: Dict[str, Any]) -> None:
         """Log metrics for a single FL round."""

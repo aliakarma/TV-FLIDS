@@ -261,6 +261,20 @@ python experiments/run_ablation.py \
 bash scripts/run_all_experiments.sh
 ```
 
+## Reproducing Paper Tables
+
+After running all experiments:
+
+```bash
+# Generate LaTeX Table 1
+python scripts/generate_tables.py \
+    --input results/tables/full_comparison_results.json \
+    --output results/tables/table1.tex
+
+# Check result completeness before submission
+python scripts/check_results.py
+```
+
 ---
 
 ## Available Strategies

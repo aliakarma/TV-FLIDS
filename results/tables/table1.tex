@@ -1,0 +1,20 @@
+\begin{table}[t]
+\centering
+\caption{Strategy comparison under 30\% label flip attack on NSL-KDD (Non-IID $\alpha=0.5$). Mean $\pm$ std over 5 seeds. $\dagger$ $p < 0.05$ (Wilcoxon signed-rank vs.~TV-FLIDS).}
+\label{tab:main_results}
+\begin{tabular}{lccc}
+\toprule
+Strategy & Accuracy & F1-Macro & ASR $\downarrow$ \\
+\midrule
+FedAvg (no defense) & 0.6026 $\pm$ 0.0114 & 0.5726 $\pm$ 0.0089 & 0.4012 $\pm$ 0.0253 \\
+Krum \cite{blanchard2017nips} & 0.8170 $\pm$ 0.0089 & 0.7891 $\pm$ 0.0108 & 0.1650 $\pm$ 0.0243 \\
+Trimmed Mean \cite{yin2018icml} & 0.8038 $\pm$ 0.0097 & 0.7755 $\pm$ 0.0104 & 0.2157 $\pm$ 0.0404 \\
+FLTrust \cite{cao2021fltrust} & 0.8642 $\pm$ 0.0121 & 0.8349 $\pm$ 0.0107 & 0.1357 $\pm$ 0.0388 \\
+FoolsGold \cite{fung2018foolsgold} & 0.8081 $\pm$ 0.0109 & 0.7794 $\pm$ 0.0119 & 0.1908 $\pm$ 0.0352 \\
+FLAME \cite{nguyen2022flame} & 0.8256 $\pm$ 0.0082 & 0.8016 $\pm$ 0.0095 & 0.1878 $\pm$ 0.0308 \\
+RFA \cite{pillutla2022rfa} & 0.8082 $\pm$ 0.0117 & 0.7811 $\pm$ 0.0130 & 0.2016 $\pm$ 0.0226 \\
+\midrule
+\textbf{TV-FLIDS (Ours)} & 0.8801 $\pm$ 0.0095 & 0.8502 $\pm$ 0.0141 & 0.1908 $\pm$ 0.0035 \\
+\bottomrule
+\end{tabular}
+\end{table}
