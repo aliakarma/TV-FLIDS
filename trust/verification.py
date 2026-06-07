@@ -8,6 +8,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from typing import Dict, List, Optional, Tuple
+import hashlib
+import pickle
 
 
 class VerificationModule:
@@ -24,7 +26,8 @@ class VerificationModule:
     def verify_all(self, client_updates: List[List[np.ndarray]], client_ids: List[int],
                    global_loss: float, global_params: List[np.ndarray],
                    model: nn.Module, device: torch.device,
-                   val_loader: torch.utils.data.DataLoader) -> Dict:
+                   val_loader: torch.utils.data.DataLoader,
+                   eval_cache: Optional[Dict[str, float]] = None) -> Dict:
         """Run all 3 checks on each client update. Returns verified/flagged/rejected dicts."""
         n = len(client_updates)
         if n == 0:
@@ -42,7 +45,7 @@ class VerificationModule:
 
             # CHECK 1: Loss consistency — does update improve server validation loss?
             tentative = [g + u for g, u in zip(global_params, upd)]
-            loss_after = self._eval_params(model, tentative, val_loader, device)
+            loss_after = self._eval_params(model, tentative, val_loader, device, eval_cache=eval_cache)
             delta = global_loss - loss_after   # positive = improvement
 
             if delta < self.loss_threshold:
@@ -93,7 +96,17 @@ class VerificationModule:
 
     # ── Private helpers ────────────────────────────────────────────────────
     def _eval_params(self, model: nn.Module, params: List[np.ndarray],
-                     val_loader, device: torch.device) -> float:
+                     val_loader, device: torch.device,
+                     eval_cache: Optional[Dict[str, float]] = None) -> float:
+        # Try to compute a deterministic key for these params and consult cache
+        try:
+            key = hashlib.sha256(pickle.dumps(params)).hexdigest()
+        except Exception:
+            key = None
+
+        if key is not None and eval_cache is not None and key in eval_cache:
+            return eval_cache[key]
+
         orig = model.get_parameters()
         model.set_parameters(params)
         model.eval()
@@ -105,7 +118,11 @@ class VerificationModule:
                 n += 1
         model.set_parameters(orig)
         model.train()
-        return total / max(n, 1)
+
+        loss = total / max(n, 1)
+        if key is not None and eval_cache is not None:
+            eval_cache[key] = loss
+        return loss
 
     def _mean_update(self, updates: List[List[np.ndarray]]) -> List[np.ndarray]:
         return [np.mean([u[i] for u in updates], axis=0) for i in range(len(updates[0]))]
