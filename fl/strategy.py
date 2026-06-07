@@ -16,6 +16,8 @@ from trust.trust_scorer import TrustScorer
 from trust.adaptive_trust_scorer import AdaptiveTrustScorer
 from trust.verification import VerificationModule
 from attacks.adversarial import apply_min_max_attack_to_params
+import hashlib
+import pickle
 
 
 class TVFLIDSStrategy(FedAvg):
@@ -45,6 +47,8 @@ class TVFLIDSStrategy(FedAvg):
         self.attack_kwargs = attack_kwargs or {}
         self.seed = seed
         self._last_round_data: Optional[Dict] = None
+        # per-round evaluation cache: param-hash -> loss
+        self._eval_cache: Dict[str, float] = {}
 
         t = config.get('trust', {})
         v = config.get('verification', {})
@@ -77,6 +81,9 @@ class TVFLIDSStrategy(FedAvg):
         if not results:
             return None, {}
 
+        # Clear per-round eval cache to avoid unbounded growth and ensure freshness
+        self._eval_cache.clear()
+
         client_params = [parameters_to_ndarrays(r.parameters) for _, r in results]
         client_ids    = [int(p.cid) for p, _ in results]
         global_params = self.model.get_parameters()
@@ -104,7 +111,8 @@ class TVFLIDSStrategy(FedAvg):
         global_loss = self._eval_model(global_params)
         vr = self.verifier.verify_all(
             updates, client_ids, global_loss, global_params,
-            self.model, self.device, self.val_loader)
+            self.model, self.device, self.val_loader,
+            eval_cache=self._eval_cache)
 
         active = vr['verified'] + vr['flagged']
         if not active:
@@ -130,7 +138,7 @@ class TVFLIDSStrategy(FedAvg):
         # ── STEP 2: Trust signals ─────────────────────────────────────
         mean_upd = [np.mean([u[i] for u in a_upds], axis=0) for i in range(len(global_params))]
         sim  = self.trust_scorer.compute_similarity_scores(a_upds, mean_upd)
-        client_val_losses = [self._eval_model(p) for p in a_pars]  # compute ONCE
+        client_val_losses = [self._eval_model(p) for p in a_pars]  # compute ONCE (cached)
         acc  = self.trust_scorer.compute_accuracy_scores(global_loss, client_val_losses)
         anom = self.trust_scorer.compute_anomaly_scores(a_upds)
 
@@ -189,6 +197,16 @@ class TVFLIDSStrategy(FedAvg):
         return ndarrays_to_parameters(aggregated), log
 
     def _eval_model(self, params: List[np.ndarray]) -> float:
+        # Compute a deterministic hash for this parameter set and consult cache
+        try:
+            key = hashlib.sha256(pickle.dumps(params)).hexdigest()
+        except Exception:
+            # Fallback: no caching if hashing fails
+            key = None
+
+        if key is not None and key in self._eval_cache:
+            return self._eval_cache[key]
+
         orig = self.model.get_parameters()
         self.model.set_parameters(params)
         self.model.eval()
@@ -200,7 +218,11 @@ class TVFLIDSStrategy(FedAvg):
                 n += 1
         self.model.set_parameters(orig)
         self.model.train()
-        return total / max(n, 1)
+
+        loss = total / max(n, 1)
+        if key is not None:
+            self._eval_cache[key] = loss
+        return loss
 
     def get_trust_history(self) -> Dict[int, List[float]]:
         return self.trust_scorer.trust_history
@@ -208,3 +230,5 @@ class TVFLIDSStrategy(FedAvg):
     def reset_trust(self) -> None:
         self.trust_scorer.reset()
         self.round_logs.clear()
+        # Clear eval cache when resetting trust history
+        self._eval_cache.clear()
