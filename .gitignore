@@ -56,3 +56,4 @@ runs/
 /.mypy_cache
 /.venv310
 /.venv_clean
+/Paper
