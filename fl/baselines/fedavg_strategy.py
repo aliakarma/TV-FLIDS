@@ -12,6 +12,8 @@ from flwr.common import FitRes, Parameters, Scalar, ndarrays_to_parameters, para
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
 from attacks.adversarial import apply_min_max_attack_to_params
+from evaluation.overhead import OverheadTracker
+from fl.ordering import order_results
 
 
 class FedAvgStrategy(FedAvg):
@@ -27,6 +29,7 @@ class FedAvgStrategy(FedAvg):
         attack_type: Optional[str] = None,
         attack_kwargs: Optional[dict] = None,
         malicious_ids: Optional[List[int]] = None,
+        config: Optional[dict] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -35,6 +38,16 @@ class FedAvgStrategy(FedAvg):
         self.attack_kwargs = attack_kwargs or {}
         self.malicious_ids = malicious_ids or []
         self.round_logs: List[Dict] = []
+
+        # Paper Table XII reports TV-FLIDS's per-round server cost *relative to
+        # FedAvg*. That ratio needs FedAvg's own server-side aggregate_fit wall
+        # time measured under the identical harness; without it the relative
+        # figure has no measured denominator. The timing is symmetric with
+        # TVFLIDSStrategy's own tracker (same OverheadTracker, same phase name,
+        # same enable flag) so the two numbers are comparable by construction.
+        self.track_overhead = bool((config or {}).get(
+            'enable_overhead_tracking', True))
+        self.overhead_tracker = OverheadTracker()
 
     def aggregate_fit(
         self,
@@ -45,6 +58,17 @@ class FedAvgStrategy(FedAvg):
 
         if not results:
             return None, {}
+
+        # Deterministic aggregation order (see fl/ordering.py):
+        # Ray yields results in completion order, and float32
+        # summation is not associative, so an unsorted round made
+        # the same seed drift run to run.
+        results = order_results(results)
+
+        _timer = None
+        if self.track_overhead:
+            _timer = self.overhead_tracker.time_phase("fedavg_total")
+            _timer.__enter__()
 
         client_ids = [int(proxy.cid) for proxy, _ in results]
 
@@ -80,6 +104,16 @@ class FedAvgStrategy(FedAvg):
             self.global_model.set_parameters(aggregated)
 
         log = {"round": server_round, "num_clients": len(results)}
+        if _timer is not None:
+            _timer.__exit__(None, None, None)
+            _times = self.overhead_tracker.timings.get("fedavg_total")
+            if _times:
+                log["time_fedavg_total_ms"] = float(_times[-1] * 1000.0)
         self.round_logs.append(log)
 
         return ndarrays_to_parameters(aggregated), log
+
+    def get_overhead_summary(self) -> Dict[str, float]:
+        """Mean per-round server aggregation time, in the same schema
+        TVFLIDSStrategy uses, so the two are directly comparable."""
+        return self.overhead_tracker.get_summary() if self.track_overhead else {}

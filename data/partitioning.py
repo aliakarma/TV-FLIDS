@@ -84,12 +84,42 @@ def get_partitioner(partition_type: str, alpha: float = 0.5):
                          f"Choose 'iid' or 'noniid'.")
 
 
+def split_server_validation_set(X: np.ndarray, y: np.ndarray,
+                                 val_size: int = 2000,
+                                 seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Split off a stratified server-held validation set, returning BOTH the
+    remainder (for client training/partitioning) and the validation set
+    itself. This set is NEVER shared with clients.
+
+    Args:
+        X: Full training features.
+        y: Full training labels.
+        val_size: Number of validation samples (absolute count).
+        seed: Random seed.
+
+    Returns:
+        (X_train_remainder, y_train_remainder, X_val, y_val).
+    """
+    from sklearn.model_selection import train_test_split
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y,
+        test_size=val_size,
+        stratify=y,
+        random_state=seed,
+    )
+    return (
+        X_train.astype(np.float32), y_train.astype(np.int64),
+        X_val.astype(np.float32), y_val.astype(np.int64),
+    )
+
+
 def create_server_validation_set(X: np.ndarray, y: np.ndarray,
                                   val_size: int = 2000,
                                   seed: int = 42) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Extract a stratified server-held validation set.
-    This set is NEVER shared with clients.
+    Extract a stratified server-held validation set (discarding the
+    remainder). This set is NEVER shared with clients.
 
     Args:
         X: Full training features.
@@ -100,11 +130,5 @@ def create_server_validation_set(X: np.ndarray, y: np.ndarray,
     Returns:
         (X_val, y_val) tuple.
     """
-    from sklearn.model_selection import train_test_split
-    _, X_val, _, y_val = train_test_split(
-        X, y,
-        test_size=val_size / len(X),
-        stratify=y,
-        random_state=seed,
-    )
-    return X_val.astype(np.float32), y_val.astype(np.int64)
+    _, _, X_val, y_val = split_server_validation_set(X, y, val_size=val_size, seed=seed)
+    return X_val, y_val

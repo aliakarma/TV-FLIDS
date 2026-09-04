@@ -78,7 +78,11 @@ def _save(fig, path: str) -> str:
     os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
-    print(f"[Figure] Saved → {path}")
+    # ASCII arrow deliberately: a U+2192 here raised UnicodeEncodeError on a
+    # cp1252 Windows console, which aborted figure generation after the file
+    # had already been written -- so the caller saw a failure for a figure that
+    # actually existed, and any later figures in the same call were skipped.
+    print(f"[Figure] Saved -> {path}")
     return path
 
 

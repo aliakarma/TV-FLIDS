@@ -105,7 +105,13 @@ class ExperimentMetrics:
             "final_attack_success_rate": last["attack_success_rate"],
             "final_false_negative_rate": last["false_negative_rate"],
             "peak_accuracy":             max(acc_series) if acc_series else 0.0,
-            "num_rounds":                len(self.round_metrics),
+            # round 0 is the pre-training centralized evaluation of the
+            # initial global model, not an FL round, so it must not be
+            # counted: a 100-round run has 101 evaluation points. Reporting
+            # len(round_metrics) here made every summary claim one round more
+            # than was actually executed.
+            "num_rounds":                max(m["round"] for m in self.round_metrics),
+            "num_evaluations":           len(self.round_metrics),
         }
 
     def reset(self) -> None:

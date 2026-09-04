@@ -14,6 +14,16 @@ datasets:
     input_dim: 49
     num_classes: 10
 
+  ciciot2023:
+    # CIC-IoT-2023 (Neto et al. 2023) ships as ~169 per-scenario CSV shards;
+    # concatenate and split them into these two files before running
+    # experiments -- see data/preprocessing/ciciot2023_pipeline.py docstring.
+    train_file: "data/raw/CICIoT2023_train.csv"
+    test_file: "data/raw/CICIoT2023_test.csv"
+    input_dim: 46
+    num_classes: 8
+    class_names: ["Benign", "DDoS", "DoS", "Recon", "WebBased", "BruteForce", "Spoofing", "Mirai"]
+
   mnist:
     data_root: "data/raw/mnist"
     input_dim: 784

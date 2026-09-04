@@ -16,6 +16,11 @@ from scipy.stats import wilcoxon
 
 SEEDS = [42, 123, 456, 789, 1337]
 
+# Paper §VIII-B extended-significance protocol (audit ID E7): the original
+# 5-seed set above, plus 5 additional seeds, for a 10-seed paired Wilcoxon
+# test. See experiments/run_extended_significance.py.
+EXTENDED_SEEDS = SEEDS + [2024, 31415, 8080, 555, 999]
+
 
 def run_with_seeds(
     experiment_fn: Callable[[int], Dict],

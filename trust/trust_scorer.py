@@ -9,8 +9,8 @@ from typing import Dict, List, Optional
 
 
 class TrustScorer:
-    def __init__(self, num_clients: int, alpha: float = 0.4, beta: float = 0.4,
-                 gamma: float = 0.2, memory_decay: float = 0.9, min_trust: float = 0.01):
+    def __init__(self, num_clients: int, alpha: float = 1/3, beta: float = 1/3,
+                 gamma: float = 1/3, memory_decay: float = 0.9, min_trust: float = 0.01):
         assert abs(alpha + beta + gamma - 1.0) < 1e-5, \
             f"α+β+γ must equal 1.0, got {alpha+beta+gamma:.4f}"
         self.num_clients = num_clients
@@ -35,11 +35,19 @@ class TrustScorer:
             scores.append(float(np.clip(imp, 0.0, 1.0)))
         return np.array(scores, dtype=np.float64)
 
-    def compute_anomaly_scores(self, client_updates: List) -> np.ndarray:
+    def compute_anomaly_scores(self, client_updates: List,
+                               tau_z: float = 2.5) -> np.ndarray:
+        """Paper eq:anom: O_i = 1 - exp(-z_i / tau_z), with z_i from eq:check3.
+
+        `tau_z` was previously hardcoded to the nominal 2.5. It is now a
+        parameter so that callers can pass the CURRENT threshold, which the
+        eq:tau_anneal warmup schedule anneals from 3.0 down to 2.5 over the first
+        T_warm rounds. The default preserves the nominal (post-warmup) value.
+        """
         norms = np.array([np.linalg.norm(self._flatten(u)) for u in client_updates], dtype=np.float64)
         mu, sigma = np.mean(norms), np.std(norms) + 1e-8
         z = np.abs((norms - mu) / sigma)
-        return 1.0 - np.exp(-z / 2.5)
+        return 1.0 - np.exp(-z / max(float(tau_z), 1e-8))
 
     def update_trust(self, client_ids: List[int], similarity_scores: np.ndarray,
                      accuracy_scores: np.ndarray, anomaly_scores: np.ndarray) -> np.ndarray:

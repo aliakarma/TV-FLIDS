@@ -153,13 +153,38 @@ def apply_smote(X: np.ndarray, y: np.ndarray, random_state: int = 42):
 # ── Main Pipeline ─────────────────────────────────────────────────────────────
 
 def build_pipeline(train_path: str, test_path: str, use_smote: bool = True,
-                   seed: int = 42, val_fraction: float = 0.05):
+                   seed: int = 42, val_size: int = 2000, protocol: str = "main"):
     """
     Full NSL-KDD preprocessing pipeline.
+
+    Two switchable data-preparation protocols (paper §IV-A, §VIII-A):
+
+    - protocol="main" (default, matches the paper's main-table protocol,
+      Table V etc.): SMOTE is applied to the *entire* training pool first;
+      the `val_size`-sample stratified server validation set D_val is then
+      drawn from that SMOTE-balanced pool. This is the leakage-permissive
+      protocol the paper uses for its headline numbers.
+    - protocol="leakage_free" (paper §VIII-A, Table VI): D_val is drawn
+      *before* any SMOTE is applied, from the original (imbalanced) pool.
+      SMOTE is deliberately NOT applied inside this function for that
+      protocol — it must be applied per-client, after Dirichlet
+      partitioning, by the caller (see experiments/run_experiment.py
+      ::setup_data), so that no synthetic sample derived from a validation
+      example ever leaks into client training data.
+
+    Args:
+        val_size: Absolute number of stratified validation samples (paper:
+            2,000 — see Table IV). Previously this pipeline only exposed a
+            `val_fraction` that produced ~6,299 samples (5% of the pool),
+            which never matched the paper; that parameter has been removed.
+        protocol: "main" or "leakage_free".
 
     Returns:
         X_train, y_train, X_val, y_val, X_test, y_test, scaler, encoders, class_weights
     """
+    if protocol not in ("main", "leakage_free"):
+        raise ValueError(f"Unknown protocol '{protocol}'. Choose 'main' or 'leakage_free'.")
+
     train_df, test_df = load_nslkdd(train_path, test_path)
 
     train_df = map_labels(train_df)
@@ -174,28 +199,44 @@ def build_pipeline(train_path: str, test_path: str, use_smote: bool = True,
     X_test = test_df[feature_cols].values.astype(np.float32)
     y_test = test_df["label"].values.astype(np.int64)
 
-    from sklearn.model_selection import train_test_split
-    X_train_raw, X_val_raw, y_train_raw, y_val = train_test_split(
-        X_all, y_all, test_size=val_fraction, stratify=y_all, random_state=seed
-    )
+    from data.partitioning import split_server_validation_set
 
-    scaler = MinMaxScaler()
-    X_train_scaled = scaler.fit_transform(X_train_raw).astype(np.float32)
-    X_val = scaler.transform(X_val_raw).astype(np.float32)
-    X_test_scaled = scaler.transform(X_test).astype(np.float32)
+    if protocol == "main":
+        # SMOTE first (on the full pool), THEN draw D_val from the balanced pool.
+        scaler = MinMaxScaler()
+        X_all_scaled = scaler.fit_transform(X_all).astype(np.float32)
+        X_test_scaled = scaler.transform(X_test).astype(np.float32)
 
-    if use_smote:
-        X_train_scaled, y_train_raw = apply_smote(
-            X_train_scaled, y_train_raw, random_state=seed
+        if use_smote:
+            X_pool, y_pool = apply_smote(X_all_scaled, y_all, random_state=seed)
+        else:
+            X_pool, y_pool = X_all_scaled, y_all
+
+        X_train_scaled, y_train, X_val, y_val = split_server_validation_set(
+            X_pool, y_pool, val_size=val_size, seed=seed
         )
 
-    y_train = y_train_raw.astype(np.int64)
+    else:  # protocol == "leakage_free"
+        # Draw D_val BEFORE SMOTE, from the raw (imbalanced) pool. SMOTE is
+        # deferred to the caller, to be applied per-client after partitioning.
+        X_train_raw, y_train, X_val_raw, y_val = split_server_validation_set(
+            X_all, y_all, val_size=val_size, seed=seed
+        )
+        scaler = MinMaxScaler()
+        X_train_scaled = scaler.fit_transform(X_train_raw).astype(np.float32)
+        X_val = scaler.transform(X_val_raw).astype(np.float32)
+        X_test_scaled = scaler.transform(X_test).astype(np.float32)
+        if use_smote:
+            print("[NSL-KDD] protocol=leakage_free: global SMOTE skipped here; "
+                  "apply per-client after partitioning (see setup_data()).")
+
+    y_train = y_train.astype(np.int64)
     weights = compute_class_weight(
         "balanced", classes=np.unique(y_train), y=y_train
     )
 
     print(
-        f"[NSL-KDD] Train: {X_train_scaled.shape} | "
+        f"[NSL-KDD] protocol={protocol} | Train: {X_train_scaled.shape} | "
         f"Val: {X_val.shape} | Test: {X_test_scaled.shape}"
     )
 

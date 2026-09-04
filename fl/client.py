@@ -55,7 +55,37 @@ class TVFLIDSClient(fl.client.NumPyClient):
         self.set_parameters(parameters)
         global_params = [p.copy() for p in parameters]
 
+        # ── Reproducibility ────────────────────────────────────────────
+        # Every virtual client runs inside a Ray worker process whose torch
+        # RNG this code never seeded, so the local DataLoader's shuffle order
+        # depended on which worker executed which client -- i.e. on Ray's
+        # scheduling, not on the run seed. Two invocations with the same seed
+        # therefore produced different accuracies, which
+        # tests/test_all.py::TestDeterminism::test_same_seed_same_accuracy
+        # detects. The stream below is a pure function of
+        # (run seed, client id, round), so the run is reproducible without
+        # changing what the algorithm does: the shuffle is still a fresh
+        # permutation each round, it is just a *determined* one.
+        server_round = int(config.get("server_round", 0))
+        run_seed = int(config.get("run_seed", self.seed))
+        local_seed = (run_seed * 1_000_003
+                      + self.client_id * 10_007
+                      + server_round) % (2 ** 31 - 1)
+        loader_generator = torch.Generator()
+        loader_generator.manual_seed(local_seed)
+        torch.manual_seed(local_seed)
+        np.random.seed(local_seed % (2 ** 32))
+
         X, y = self.X_train_np.copy(), self.y_train_np.copy()
+
+        # ACK1 ("Check-1 evasion"): auxiliary loss on a proxy-D_val slice,
+        # trained alongside the poisoning objective (see
+        # AdversarialAttackFactory.ack1_prepare_proxy_val docstring for the
+        # full threat-model assumption). aux_X/aux_y stay None -> the
+        # training loop below is byte-for-byte identical to the pre-ACK1
+        # path for every other (including honest) client.
+        aux_X_t: Optional[torch.Tensor] = None
+        aux_y_t: Optional[torch.Tensor] = None
 
         # Data-level attacks BEFORE training
         if self.is_malicious:
@@ -75,6 +105,21 @@ class TVFLIDSClient(fl.client.NumPyClient):
                     poison_ratio=self.attack_kwargs.get('poison_ratio', 0.1),
                     seed=self.seed + self.client_id,
                 )
+            elif self.attack_type == 'ack1_evasion':
+                X, y, X_proxy, y_proxy = self.factory.ack1_prepare_proxy_val(
+                    X, y,
+                    proxy_ratio=self.attack_kwargs.get('proxy_val_ratio', 0.15),
+                    seed=self.seed + self.client_id,
+                )
+                y = self.factory.label_flip(
+                    y,
+                    target_class=self.attack_kwargs.get('target_class', 0),
+                    flip_ratio=self.attack_kwargs.get('flip_ratio', 1.0),
+                    seed=self.seed + self.client_id,
+                )
+                if len(X_proxy) > 0:
+                    aux_X_t = torch.tensor(X_proxy, dtype=torch.float32).to(self.device)
+                    aux_y_t = torch.tensor(y_proxy, dtype=torch.long).to(self.device)
 
         # Local training
         bs = self.config.get('local_batch_size', 256)
@@ -82,14 +127,25 @@ class TVFLIDSClient(fl.client.NumPyClient):
             TensorDataset(torch.tensor(X, dtype=torch.float32),
                           torch.tensor(y, dtype=torch.long)),
             batch_size=bs, shuffle=True,
+            generator=loader_generator,
             drop_last=(len(X) > bs))
 
+        aux_loss_weight = self.attack_kwargs.get('aux_loss_weight', 0.5)
         self.model.train()
         for _ in range(self.config.get('local_epochs', 5)):
             for Xb, yb in loader:
                 Xb, yb = Xb.to(self.device), yb.to(self.device)
                 self.optimizer.zero_grad()
-                self.criterion(self.model(Xb), yb).backward()
+                loss = self.criterion(self.model(Xb), yb)
+                if aux_X_t is not None:
+                    # ACK1's combined objective: poisoning loss on the
+                    # (label-flipped) local batch PLUS an auxiliary loss on
+                    # the clean proxy-D_val slice, so the resulting update
+                    # is trained to also look loss-improving to Check 1's
+                    # server-validation-style evaluation.
+                    aux_loss = self.criterion(self.model(aux_X_t), aux_y_t)
+                    loss = loss + aux_loss_weight * aux_loss
+                loss.backward()
                 self.optimizer.step()
 
         # Model-level attacks AFTER training

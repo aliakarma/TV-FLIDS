@@ -10,6 +10,7 @@ dependencies:
     - torch==2.1.0
     - torchvision==0.16.0
     - flwr[simulation]==1.6.0
+    - ray==2.6.3          # transitive via flwr[simulation]; pinned for reproducibility
     - scikit-learn==1.3.2
     - pandas==2.1.3
     - numpy==1.26.2

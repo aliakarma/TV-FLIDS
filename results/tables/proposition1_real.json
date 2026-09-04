@@ -1,6 +1,241 @@
 {
-  "bound_holds": true,
-  "observed_deviation": 0.05,
-  "theoretical_bound": 0.12,
-  "bound_ratio": 0.41
+  "configs_tested": 20,
+  "seed": 42,
+  "bound_holds": 20,
+  "bound_holds_pct": 100.0,
+  "mean_ratio": 0.5880536513570058,
+  "std_ratio": 0.1975023353704506,
+  "max_ratio": 0.9993679631920966,
+  "min_ratio": 0.40246861372372816,
+  "all_ratios": [
+    0.49653477223860676,
+    0.5749614276153361,
+    0.44363370513650385,
+    0.4037003277505677,
+    0.4984444504812935,
+    0.44546414253289895,
+    0.4441113710054364,
+    0.442851212504584,
+    0.9993679631920966,
+    0.9993399344399041,
+    0.7053973259839506,
+    0.5734832916491681,
+    0.9993232344987945,
+    0.7061079076551402,
+    0.40563389645314607,
+    0.577612378321664,
+    0.49394627668651336,
+    0.7049810735001452,
+    0.40246861372372816,
+    0.4437097217706394
+  ],
+  "per_config": [
+    {
+      "config_index": 0,
+      "f": 4,
+      "N_H": 16,
+      "observed_deviation": 0.7287844161143893,
+      "theoretical_bound": 1.4677409355710311,
+      "bound_ratio": 0.49653477223860676,
+      "bound_holds": true
+    },
+    {
+      "config_index": 1,
+      "f": 3,
+      "N_H": 17,
+      "observed_deviation": 0.572667468238302,
+      "theoretical_bound": 0.996010227788388,
+      "bound_ratio": 0.5749614276153361,
+      "bound_holds": true
+    },
+    {
+      "config_index": 2,
+      "f": 5,
+      "N_H": 15,
+      "observed_deviation": 0.9341443214065659,
+      "theoretical_bound": 2.105665791743207,
+      "bound_ratio": 0.44363370513650385,
+      "bound_holds": true
+    },
+    {
+      "config_index": 3,
+      "f": 6,
+      "N_H": 14,
+      "observed_deviation": 1.023781922627299,
+      "theoretical_bound": 2.5359947669471667,
+      "bound_ratio": 0.4037003277505677,
+      "bound_holds": true
+    },
+    {
+      "config_index": 4,
+      "f": 4,
+      "N_H": 16,
+      "observed_deviation": 0.7012944363292393,
+      "theoretical_bound": 1.4069660734864862,
+      "bound_ratio": 0.4984444504812935,
+      "bound_holds": true
+    },
+    {
+      "config_index": 5,
+      "f": 5,
+      "N_H": 15,
+      "observed_deviation": 0.8553533144307206,
+      "theoretical_bound": 1.9201395315738765,
+      "bound_ratio": 0.44546414253289895,
+      "bound_holds": true
+    },
+    {
+      "config_index": 6,
+      "f": 5,
+      "N_H": 15,
+      "observed_deviation": 0.8807296775771238,
+      "theoretical_bound": 1.9831279508608417,
+      "bound_ratio": 0.4441113710054364,
+      "bound_holds": true
+    },
+    {
+      "config_index": 7,
+      "f": 5,
+      "N_H": 15,
+      "observed_deviation": 0.8633391964148082,
+      "theoretical_bound": 1.9495017008164104,
+      "bound_ratio": 0.442851212504584,
+      "bound_holds": true
+    },
+    {
+      "config_index": 8,
+      "f": 1,
+      "N_H": 19,
+      "observed_deviation": 0.2921679057113788,
+      "theoretical_bound": 0.2923526733681568,
+      "bound_ratio": 0.9993679631920966,
+      "bound_holds": true
+    },
+    {
+      "config_index": 9,
+      "f": 1,
+      "N_H": 19,
+      "observed_deviation": 0.3037675520181493,
+      "theoretical_bound": 0.3039681809523616,
+      "bound_ratio": 0.9993399344399041,
+      "bound_holds": true
+    },
+    {
+      "config_index": 10,
+      "f": 2,
+      "N_H": 18,
+      "observed_deviation": 0.4584840996831257,
+      "theoretical_bound": 0.6499657366713408,
+      "bound_ratio": 0.7053973259839506,
+      "bound_holds": true
+    },
+    {
+      "config_index": 11,
+      "f": 3,
+      "N_H": 17,
+      "observed_deviation": 0.5706866562967977,
+      "theoretical_bound": 0.9951234131352615,
+      "bound_ratio": 0.5734832916491681,
+      "bound_holds": true
+    },
+    {
+      "config_index": 12,
+      "f": 1,
+      "N_H": 19,
+      "observed_deviation": 0.3127791528064001,
+      "theoretical_bound": 0.31299096429999507,
+      "bound_ratio": 0.9993232344987945,
+      "bound_holds": true
+    },
+    {
+      "config_index": 13,
+      "f": 2,
+      "N_H": 18,
+      "observed_deviation": 0.4839081973449122,
+      "theoretical_bound": 0.6853176193576515,
+      "bound_ratio": 0.7061079076551402,
+      "bound_holds": true
+    },
+    {
+      "config_index": 14,
+      "f": 6,
+      "N_H": 14,
+      "observed_deviation": 0.9673190055769763,
+      "theoretical_bound": 2.38470948798622,
+      "bound_ratio": 0.40563389645314607,
+      "bound_holds": true
+    },
+    {
+      "config_index": 15,
+      "f": 3,
+      "N_H": 17,
+      "observed_deviation": 0.5875024074004958,
+      "theoretical_bound": 1.0171222495810164,
+      "bound_ratio": 0.577612378321664,
+      "bound_holds": true
+    },
+    {
+      "config_index": 16,
+      "f": 4,
+      "N_H": 16,
+      "observed_deviation": 0.7222645391531517,
+      "theoretical_bound": 1.4622329761422201,
+      "bound_ratio": 0.49394627668651336,
+      "bound_holds": true
+    },
+    {
+      "config_index": 17,
+      "f": 2,
+      "N_H": 18,
+      "observed_deviation": 0.43429329862104177,
+      "theoretical_bound": 0.6160353914396847,
+      "bound_ratio": 0.7049810735001452,
+      "bound_holds": true
+    },
+    {
+      "config_index": 18,
+      "f": 6,
+      "N_H": 14,
+      "observed_deviation": 0.9789138004945729,
+      "theoretical_bound": 2.4322736310112756,
+      "bound_ratio": 0.40246861372372816,
+      "bound_holds": true
+    },
+    {
+      "config_index": 19,
+      "f": 5,
+      "N_H": 15,
+      "observed_deviation": 0.8652435962974501,
+      "theoretical_bound": 1.9500217133119546,
+      "bound_ratio": 0.4437097217706394,
+      "bound_holds": true
+    }
+  ],
+  "tightest_bound_config": {
+    "config_index": 8,
+    "f": 1,
+    "N_H": 19,
+    "observed_deviation": 0.2921679057113788,
+    "theoretical_bound": 0.2923526733681568,
+    "bound_ratio": 0.9993679631920966,
+    "bound_holds": true
+  },
+  "smallest_absolute_deviation_config": {
+    "config_index": 8,
+    "f": 1,
+    "N_H": 19,
+    "observed_deviation": 0.2921679057113788,
+    "theoretical_bound": 0.2923526733681568,
+    "bound_ratio": 0.9993679631920966,
+    "bound_holds": true
+  },
+  "verification_pass": true,
+  "provenance": {
+    "script": "theory/proposition1_verification.py",
+    "git_commit": "48d2e73bf41d7cf085aa60543641e798cbf744cd",
+    "timestamp_utc": "2026-09-03T19:08:20.477731Z",
+    "python_version": "3.11.9",
+    "numpy_version": "1.26.2",
+    "platform": "Windows-10-10.0.26200-SP0"
+  }
 }

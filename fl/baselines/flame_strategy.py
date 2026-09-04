@@ -24,6 +24,7 @@ except ImportError:
     _HDBSCAN_AVAILABLE = False
 
 from attacks.adversarial import apply_min_max_attack_to_params
+from fl.ordering import order_results
 
 
 class FLAMEStrategy(FedAvg):
@@ -74,6 +75,12 @@ class FLAMEStrategy(FedAvg):
 
         if not results:
             return None, {}
+
+        # Deterministic aggregation order (see fl/ordering.py):
+        # Ray yields results in completion order, and float32
+        # summation is not associative, so an unsorted round made
+        # the same seed drift run to run.
+        results = order_results(results)
 
         if not _HDBSCAN_AVAILABLE:
             raise ImportError(

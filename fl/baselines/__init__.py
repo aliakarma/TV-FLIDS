@@ -5,6 +5,8 @@ from fl.baselines.fltrust_strategy import FLTrustStrategy
 from fl.baselines.foolsgold_strategy import FoolsGoldStrategy
 from fl.baselines.flame_strategy import FLAMEStrategy
 from fl.baselines.rfa_strategy import RFAStrategy
+from fl.baselines.bucketing_strategy import BucketingStrategy
+from fl.baselines.deepsight_strategy import DeepSightStrategy
 
 __all__ = [
     "FedAvgStrategy",
@@ -14,4 +16,6 @@ __all__ = [
     "FoolsGoldStrategy",
     "FLAMEStrategy",
     "RFAStrategy",
+    "BucketingStrategy",
+    "DeepSightStrategy",
 ]

@@ -43,7 +43,7 @@ def run_ratio_sweep(
     methods: list = None,
     ratios: list = None,
     seeds: list = None,
-    num_rounds: int = 50,
+    num_rounds: int = 100,
     config_path: str = "config/fl_config.yaml",
     output_dir: str = "results/tables",
 ):
@@ -58,7 +58,10 @@ def run_ratio_sweep(
     if ratios is None:
         ratios = RATIOS
     if seeds is None:
-        seeds = [42, 123]
+        # Paper protocol (audit Priority 3 fix): 3 seeds, 100 rounds, 4
+        # methods by default. Pass --seeds/--rounds/--methods to reduce
+        # for a smoke test.
+        seeds = [42, 123, 456]
 
     os.makedirs(output_dir, exist_ok=True)
     ratio_results = {m: {} for m in methods}
@@ -147,11 +150,13 @@ def run_ratio_sweep(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Adversarial ratio sweep")
-    parser.add_argument("--methods", nargs="+", default=["fedavg", "tvflids"])
+    # methods=None => METHODS (paper protocol: 4 methods,
+    # ["fedavg", "krum", "fltrust", "tvflids"]); pass --methods to reduce.
+    parser.add_argument("--methods", nargs="+", default=None)
     parser.add_argument("--ratios",  nargs="+", type=float,
                         default=[0.0, 0.10, 0.20, 0.30, 0.40])
-    parser.add_argument("--seeds",   nargs="+", type=int, default=[42, 123])
-    parser.add_argument("--rounds",  type=int, default=50)
+    parser.add_argument("--seeds",   nargs="+", type=int, default=[42, 123, 456])
+    parser.add_argument("--rounds",  type=int, default=100)
     parser.add_argument("--output",  default="results/tables")
     args = parser.parse_args()
 

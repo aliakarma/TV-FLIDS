@@ -12,6 +12,7 @@ from flwr.common import FitRes, Parameters, Scalar, ndarrays_to_parameters, para
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
 from attacks.adversarial import apply_min_max_attack_to_params
+from fl.ordering import order_results
 
 
 class TrimmedMeanStrategy(FedAvg):
@@ -53,6 +54,12 @@ class TrimmedMeanStrategy(FedAvg):
 
         if not results:
             return None, {}
+
+        # Deterministic aggregation order (see fl/ordering.py):
+        # Ray yields results in completion order, and float32
+        # summation is not associative, so an unsorted round made
+        # the same seed drift run to run.
+        results = order_results(results)
 
         client_ids = [int(proxy.cid) for proxy, _ in results]
         params_list = [

@@ -27,15 +27,31 @@ class ExperimentLogger:
     """
 
     def __init__(self, log_dir: str, experiment_name: str = "experiment",
-                 use_tensorboard: bool = True):
+                 use_tensorboard: Optional[bool] = None):
+        # TensorBoard event files are a convenience view, never the scientific
+        # record -- experiment_log.json is. On a campaign whose log_dirs live on
+        # a slow (9p / network) filesystem the per-round flush dominates the
+        # round, so TVFLIDS_TENSORBOARD=0 turns it off for the whole campaign
+        # without changing a single logged value.
+        if use_tensorboard is None:
+            use_tensorboard = os.getenv("TVFLIDS_TENSORBOARD", "1") != "0"
         self.log_dir = log_dir
         self.experiment_name = experiment_name
         self.start_time = time.time()
+        import datetime as _dt
+        self._start_utc = (_dt.datetime.now(_dt.timezone.utc)
+                           .isoformat().replace("+00:00", "Z"))
         os.makedirs(log_dir, exist_ok=True)
 
         self.config: Dict[str, Any] = {}
         self.round_logs: List[Dict[str, Any]] = []
         self.summary: Dict[str, Any] = {}
+        # Free-form per-run artifacts that are neither a per-round metric nor a
+        # scalar summary field -- currently the per-client trust trajectories
+        # and the strategy's own round logs, which back manuscript Figures 3
+        # and 4. Without these on disk, those two figures had no regeneration
+        # path: the data existed only in memory on the live strategy object.
+        self.extra: Dict[str, Any] = {}
 
         self.writer = None
         if use_tensorboard and _TB_AVAILABLE:
@@ -79,14 +95,40 @@ class ExperimentLogger:
         self.summary = summary
         summary["elapsed_seconds"] = time.time() - self.start_time
 
+    def log_extra(self, key: str, value: Any) -> None:
+        """Attach a named per-run artifact to the saved log.
+
+        Used for data a figure needs but that is not a per-round scalar
+        metric, e.g. ``trust_history`` (Figure 3) and ``strategy_round_logs``
+        (Figure 4). Written under the ``extra`` key of experiment_log.json and
+        read back by scripts/generate_manuscript_figures.py.
+        """
+        self.extra[key] = value
+
     def save(self) -> str:
-        """Save all logs to disk. Returns path to log file."""
+        """Save all logs to disk. Returns path to log file.
+
+        Every saved run carries a provenance block (git commit + dirty-tree
+        state, package versions, hardware, interpreter, timestamps and the
+        simulation-parallelism knob). Without it a result on disk cannot be
+        traced back to the code and environment that produced it, which is
+        exactly the gap the forensic audit found in the quarantined artifacts.
+        """
+        from utils.provenance import run_provenance
         output = {
             "experiment_name": self.experiment_name,
             "config": self.config,
             "rounds": self.round_logs,
             "summary": self.summary,
+            "extra": self.extra,
             "elapsed_seconds": time.time() - self.start_time,
+            "provenance": run_provenance(
+                extra={
+                    "started_utc": self._start_utc,
+                    "config_hash": self.config.get("_config_hash"),
+                    "log_dir": os.path.abspath(self.log_dir),
+                }
+            ),
         }
         log_path = os.path.join(self.log_dir, "experiment_log.json")
         with open(log_path, "w") as f:

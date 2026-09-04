@@ -16,12 +16,19 @@ class OverheadTracker:
     """
 
     def __init__(self):
+        # Phase names mirror the rows of paper Table XII. `client_processing`
+        # covers server-side handling of the received client updates
+        # (deserialisation + Delta_i computation), NOT simulated client-local
+        # training, which happens inside the Flower client and is timed
+        # separately by the caller as "client_training" when available.
         self.timings: Dict[str, List[float]] = {
-            "verification":   [],
-            "trust_scoring":  [],
-            "aggregation":    [],
-            "total":          [],
-            "fedavg_total":   [],
+            "client_processing": [],
+            "verification":      [],
+            "trust_scoring":     [],
+            "meta_gradient":     [],
+            "aggregation":       [],
+            "total":             [],
+            "fedavg_total":      [],
         }
 
     def time_phase(self, phase: str):
@@ -49,8 +56,10 @@ class OverheadTracker:
     def print_report(self) -> None:
         summary = self.get_summary()
         print("\n[Overhead Report]")
+        print(f"  Client processing:  {summary.get('client_processing_mean_ms', 0):.1f} ms/round")
         print(f"  Verification gate:  {summary.get('verification_mean_ms', 0):.1f} ms/round")
         print(f"  Trust scoring:      {summary.get('trust_scoring_mean_ms', 0):.1f} ms/round")
+        print(f"  Meta-gradient:      {summary.get('meta_gradient_mean_ms', 0):.1f} ms/round")
         print(f"  Aggregation:        {summary.get('aggregation_mean_ms', 0):.1f} ms/round")
         print(f"  TV-FLIDS total:     {summary.get('total_mean_ms', 0):.1f} ms/round")
         print(f"  FedAvg total:       {summary.get('fedavg_total_mean_ms', 0):.1f} ms/round")

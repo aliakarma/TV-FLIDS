@@ -57,3 +57,7 @@ runs/
 /.venv310
 /.venv_clean
 /Paper
+
+# Campaign scratch: per-phase stdout, benchmark probes, shell shims. The
+# scientific record is results/logs, results/tables and results/_campaign.
+results/_campaign_logs/

@@ -79,20 +79,55 @@ class VerificationModule:
         return results
 
     # ── Adaptive threshold helpers ────────────────────────────────────────
+    # Both schedules implement the warmup annealing of paper Section IV-A
+    # ("Stage 1: Three-Criteria Verification Gate") and are driven by the
+    # SAME authoritative configuration knob, ``verification.warmup_rounds``
+    # (T_warm, default 20 per paper Table IV). Neither carries its own
+    # independent transition length.
+
     @staticmethod
     def adaptive_zscore_threshold(base: float, round_num: int,
-                                   warmup_rounds: int = 20, max_scale: float = 2.0) -> float:
-        if round_num <= warmup_rounds:
-            scale = max_scale * (1 - round_num / warmup_rounds) + 1.0
-        else:
-            scale = 1.0 + (max_scale - 1.0) * np.exp(-(round_num - warmup_rounds) / 20.0)
-        return base * scale
+                                   warmup_rounds: int = 20,
+                                   warmup_offset: float = 0.5) -> float:
+        """Check-3 threshold tau_z(t), paper Section IV-A (label eq:tau_anneal).
+
+            tau_z(t) = base + warmup_offset * max(0, 1 - t / T_warm)
+
+        With the paper's defaults (base = tau_z = 2.5, warmup_offset = 0.5,
+        T_warm = 20) this evaluates to 3.0 at t = 0, decays *linearly* to the
+        nominal 2.5 at t = T_warm, and stays at 2.5 for every t > T_warm.
+
+        The annealing is ADDITIVE (an offset above the nominal threshold),
+        not multiplicative. A previous implementation multiplied ``base`` by
+        a scale factor that started at 3.0 (giving tau_z(0) = 7.5, three times
+        the intended leniency) and, worse, switched at t = T_warm to a second,
+        exponential branch that jumped the threshold back up to ~4.88 at
+        t = T_warm + 1 before decaying — a discontinuity the paper's schedule
+        does not have and which made the gate *more* permissive after warmup
+        than during it. See tests/test_warmup_schedule.py.
+        """
+        if warmup_rounds <= 0:
+            return float(base)
+        return float(base + warmup_offset * max(0.0, 1.0 - round_num / warmup_rounds))
 
     @staticmethod
     def adaptive_loss_threshold(round_num: int, initial: float = -0.1,
-                                 final: float = 0.0, transition: int = 30) -> float:
-        a = min(round_num / transition, 1.0)
-        return initial * (1 - a) + final * a
+                                 final: float = 0.0,
+                                 warmup_rounds: int = 20) -> float:
+        """Check-1 threshold tau_L(t), paper Section IV-A.
+
+            tau_L(t) = initial + (final - initial) * min(1, t / T_warm)
+
+        Linearly annealed from ``initial`` (-0.1) to ``final`` (0.0) over the
+        first T_warm rounds, then held at ``final``. T_warm is the SAME
+        ``warmup_rounds`` that drives Eq. (5); the previous signature took an
+        independent ``transition`` argument that call sites hardcoded to 30,
+        contradicting both Table IV (T_warm = 20) and the tau_z schedule.
+        """
+        if warmup_rounds <= 0:
+            return float(final)
+        a = min(round_num / warmup_rounds, 1.0)
+        return float(initial * (1 - a) + final * a)
 
     # ── Private helpers ────────────────────────────────────────────────────
     def _eval_params(self, model: nn.Module, params: List[np.ndarray],

@@ -29,6 +29,12 @@ STRATEGIES = [
     "fedavg", "krum", "trimmed_mean", "fltrust",
     "foolsgold", "flame", "rfa", "tvflids",
 ]
+# "bucketing" and "deepsight" (fl/baselines/bucketing_strategy.py,
+# deepsight_strategy.py) are implemented and selectable via --strategy but
+# intentionally left out of this default list: including them here would
+# widen the default (paper's) 8-strategy x 5-seed comparison run, and this
+# remediation pass is explicitly scoped to NOT trigger a full-scale
+# experimental campaign. Pass them explicitly via --strategies to include.
 PRIMARY_ATTACK = "label_flip_30"
 METRICS = ["final_accuracy", "final_f1_macro", "final_attack_success_rate"]
 
@@ -41,21 +47,40 @@ def run_full_comparison(
     config_path: str = "config/fl_config.yaml",
     output_dir: str = "results/tables",
     verbose: bool = True,
+    protocol: str = "main",
+    dataset: str = "nslkdd",
 ) -> dict:
     """
     Run all strategies across all seeds for the primary attack.
 
+    Args:
+        protocol: "main" (paper Table V: global SMOTE, then D_val drawn from
+            the balanced pool) or "leakage_free" (paper Section VIII-A /
+            Table VI: D_val drawn pre-SMOTE, SMOTE applied per client after
+            partitioning). Previously this runner had no protocol argument at
+            all, so Table VI was only reachable by invoking run_experiment.py
+            once per (strategy, seed) cell by hand.
+        dataset: "nslkdd" (default), "unswnb15" or "ciciot2023".
+
     Returns:
         {strategy_name: [result_per_seed]}
     """
+    if protocol not in ("main", "leakage_free"):
+        raise ValueError(f"Unknown protocol '{protocol}'. "
+                         "Choose 'main' or 'leakage_free'.")
     if strategies is None:
         strategies = STRATEGIES
     if seeds is None:
-        seeds = SEEDS[:3]   # Default to 3 seeds for speed; use all 5 for paper
+        # Paper protocol (audit Priority 3 fix): all 5 seeds by default.
+        # Pass --seeds to reduce for a smoke test.
+        seeds = SEEDS
 
     os.makedirs(output_dir, exist_ok=True)
     all_results = {}
-    log_root = "results/logs/comparison"
+    # Keep protocol/dataset variants in separate log and output namespaces so a
+    # leakage-free run can never overwrite the main-protocol Table V logs.
+    suffix = "" if (protocol == "main" and dataset == "nslkdd") else f"_{dataset}_{protocol}"
+    log_root = f"results/logs/comparison{suffix}"
 
     for strategy in strategies:
         print(f"\n{'='*60}")
@@ -70,7 +95,9 @@ def run_full_comparison(
                 seed=seed,
                 num_rounds=num_rounds,
                 config_path=config_path,
-                log_dir=f"results/logs/comparison/{strategy}_{attack}_seed{seed}",
+                log_dir=f"{log_root}/{strategy}_{attack}_seed{seed}",
+                dataset=dataset,
+                protocol=protocol,
                 verbose=False,
             )
             seed_results.append(result)
@@ -109,11 +136,20 @@ def run_full_comparison(
         sig = "YES *" if wtest["significant"] else "no"
         print(f"{strategy:<20} {wtest['p_value']:>18.4f} {sig:>14}")
 
-    # Save
-    out_path = os.path.join(output_dir, "full_comparison_results.json")
+    # Save. Non-default protocol/dataset variants get their own filename so a
+    # leakage-free or cross-dataset run cannot silently overwrite the
+    # main-protocol Table V artifact.
+    out_path = os.path.join(output_dir, f"full_comparison_results{suffix}.json")
     with open(out_path, "w") as f:
-        json.dump({"raw": all_results, "table": table}, f,
-                   indent=2, default=str)
+        json.dump({
+            "raw": all_results,
+            "table": table,
+            "protocol": protocol,
+            "dataset": dataset,
+            "attack": attack,
+            "seeds": seeds,
+            "num_rounds": num_rounds,
+        }, f, indent=2, default=str)
     print(f"\n[Comparison] Saved to {out_path}")
 
     # ── Figure 1 and 6 generation ───────────────────────────────────
@@ -175,10 +211,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Full multi-strategy comparison")
     parser.add_argument("--strategies", nargs="+", default=None)
     parser.add_argument("--attack",     default="label_flip_30")
-    parser.add_argument("--seeds",      nargs="+", type=int, default=[42, 123, 456])
+    # Paper protocol (audit Priority 3 fix): all 5 seeds by default.
+    parser.add_argument("--seeds",      nargs="+", type=int, default=SEEDS)
     parser.add_argument("--rounds",     type=int, default=50)
     parser.add_argument("--config",     default="config/fl_config.yaml")
     parser.add_argument("--output",     default="results/tables")
+    parser.add_argument("--dataset",    default="nslkdd",
+                        choices=["nslkdd", "unswnb15", "ciciot2023"])
+    parser.add_argument("--protocol",   default="main",
+                        choices=["main", "leakage_free"],
+                        help="'main' = paper Table V; 'leakage_free' = paper "
+                             "Section VIII-A / Table VI (D_val drawn pre-SMOTE, "
+                             "SMOTE applied per client after partitioning)")
     args = parser.parse_args()
 
     run_full_comparison(
@@ -188,4 +232,6 @@ if __name__ == "__main__":
         num_rounds=args.rounds,
         config_path=args.config,
         output_dir=args.output,
+        dataset=args.dataset,
+        protocol=args.protocol,
     )

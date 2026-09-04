@@ -34,9 +34,11 @@ def run_all():
         if result.get("error"):
             print(f"  FAIL: {result['error']}")
         else:
-            holds = result["bound_holds"]
-            ratio = result["bound_ratio"]
-            print(f"  {'PASS' if holds else 'FAIL'}: bound_holds={holds}, ratio={ratio:.4f}")
+            passed = result["verification_pass"]
+            ratio = result["mean_ratio"]
+            print(f"  {'PASS' if passed else 'FAIL'}: "
+                  f"bound_holds={result['bound_holds']}/{result['configs_tested']}, "
+                  f"mean_ratio={ratio:.4f}")
 
     # 3. Convergence analysis
     cmp_path = "results/tables/full_comparison_results.json"

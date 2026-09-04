@@ -50,6 +50,8 @@ from fl.baselines.fltrust_strategy import FLTrustStrategy
 from fl.baselines.foolsgold_strategy import FoolsGoldStrategy
 from fl.baselines.flame_strategy import FLAMEStrategy
 from fl.baselines.rfa_strategy import RFAStrategy
+from fl.baselines.bucketing_strategy import BucketingStrategy
+from fl.baselines.deepsight_strategy import DeepSightStrategy
 from attacks.adversarial import ATTACK_CONFIGS, get_malicious_client_ids
 from evaluation.metrics import ExperimentMetrics
 from evaluation.overhead import OverheadTracker, estimate_communication_cost
@@ -65,9 +67,23 @@ def load_config(config_path: str) -> dict:
 # ── Data Setup ────────────────────────────────────────────────────────────────
 
 def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
-               partition_type: str = "noniid", alpha: float = 0.5):
+               partition_type: str = "noniid", alpha: float = 0.5,
+               val_size: int = 2000, protocol: str = "main"):
     """
     Download, preprocess, and partition dataset into client shards.
+
+    Args:
+        val_size: Absolute size of the stratified server validation set
+            D_val (paper §IV-A / Table IV: 2,000). Previously this pipeline
+            silently used an internal 5% fraction (~6,299 samples on
+            NSL-KDD) that never matched the paper — see the audit finding
+            N1. `create_server_validation_set(val_size=...)` is now the
+            single source of truth for this split.
+        protocol: "main" (paper's main-table protocol: global SMOTE, then
+            D_val drawn from the balanced pool) or "leakage_free" (paper
+            §VIII-A / Table VI: D_val drawn pre-SMOTE, SMOTE applied
+            per-client after Dirichlet partitioning so no synthetic sample
+            can leak information from a validation example into training).
 
     Returns:
         client_data, X_test, y_test, X_val, y_val, class_weights
@@ -84,11 +100,14 @@ def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
 
     if dataset == "nslkdd":
         download_nslkdd(train_path, test_path)
+        # protocol="leakage_free" defers SMOTE to the per-client stage below,
+        # so the global pipeline applies SMOTE only for the "main" protocol.
         (X_train, y_train,
          X_val, y_val,
          X_test, y_test,
          _, _, class_weights) = nslkdd_pipeline(
-            train_path, test_path, use_smote=True, seed=seed
+            train_path, test_path, use_smote=(protocol == "main"),
+            seed=seed, val_size=val_size, protocol=protocol,
         )
     elif dataset == "unswnb15":
         (X_train, y_train,
@@ -97,16 +116,43 @@ def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
          _, _, class_weights) = unswnb15_pipeline(
             train_path, test_path, use_smote=True, seed=seed
         )
+        if protocol == "leakage_free":
+            print("[Warning] protocol='leakage_free' is not yet implemented for "
+                  "dataset='unswnb15' (an orphaned, paper-unreferenced pipeline); "
+                  "falling back to its existing single protocol.")
+    elif dataset == "ciciot2023":
+        from data.preprocessing.ciciot2023_pipeline import build_pipeline as ciciot2023_pipeline
+        (X_train, y_train,
+         X_val, y_val,
+         X_test, y_test,
+         _, _, class_weights) = ciciot2023_pipeline(
+            train_path, test_path, use_smote=(protocol == "main"),
+            seed=seed, val_size=val_size, protocol=protocol,
+        )
     else:
         raise NotImplementedError(f"Dataset '{dataset}' not yet integrated. "
-                                   "Use 'nslkdd' or 'unswnb15'.")
+                                   "Use 'nslkdd', 'unswnb15', or 'ciciot2023'.")
 
     # Partition training data across clients
     partitioner = get_partitioner(partition_type, alpha=alpha)
     client_data = partitioner.partition(X_train, y_train, num_clients, seed=seed)
 
+    if protocol == "leakage_free" and dataset in ("nslkdd", "ciciot2023"):
+        # Leakage-free protocol (paper Section VIII-A / Table VI): D_val was
+        # drawn pre-SMOTE by the pipeline above, so SMOTE is applied here,
+        # per client, after Dirichlet partitioning. Both NSL-KDD and
+        # CIC-IoT-2023 support this; UNSW-NB15 does not (warned above).
+        if dataset == "nslkdd":
+            from data.preprocessing.nslkdd_pipeline import apply_smote
+        else:
+            from data.preprocessing.ciciot2023_pipeline import apply_smote
+        client_data = [
+            apply_smote(Xc, yc, random_state=seed + cid)
+            for cid, (Xc, yc) in enumerate(client_data)
+        ]
+
     print(f"[Data] {dataset.upper()} | Clients={num_clients} | "
-          f"Partition={partition_type}(alpha={alpha}) | "
+          f"Partition={partition_type}(alpha={alpha}) | Protocol={protocol} | "
           f"Train={X_train.shape} | Test={X_test.shape} | Val={X_val.shape}")
 
     return client_data, X_test, y_test, X_val, y_val, class_weights
@@ -152,6 +198,13 @@ def make_client_fn(
 
         is_malicious = client_id in malicious_ids
 
+        # Belt-and-braces reproducibility: the client's own model init happens
+        # inside a Ray worker with an unseeded RNG. Its values are overwritten
+        # by set_parameters on every fit/evaluate call, so they do not affect
+        # the algorithm -- but seeding them keeps any future code path that
+        # reads a client's pre-broadcast weights a function of the run seed.
+        torch.manual_seed(int(attack_kwargs.get("seed", 42)) * 7919 + client_id)
+
         return TVFLIDSClient(
             client_id=client_id,
             X_train=X_tr,
@@ -187,8 +240,20 @@ def make_strategy(
     malicious_ids: Optional[List[int]] = None,
     seed: int = 42,
     evaluate_fn=None,
+    strategy_kwargs_override: Optional[dict] = None,
 ):
-    """Instantiate the requested FL strategy."""
+    """Instantiate the requested FL strategy.
+
+    Args:
+        strategy_kwargs_override: Optional dict of constructor kwargs that
+            override the computed defaults for the selected strategy (e.g.
+            {"num_byzantine": 4} for krum, {"beta": 0.1} for trimmed_mean).
+            Used by experiments/run_hyperparameter_sweep.py (audit IDs
+            E10/E11) to sweep baseline hyperparameters without disturbing
+            the normal adv_ratio-derived defaults. None/omitted preserves
+            prior behavior exactly.
+    """
+    override = strategy_kwargs_override or {}
     frac_fit  = fl_cfg.get("fraction_fit", 0.5)
     frac_eval = fl_cfg.get("fraction_evaluate", 0.3)
 
@@ -199,6 +264,27 @@ def make_strategy(
         min_evaluate_clients=max(1, int(num_clients * frac_eval)),
         min_available_clients=num_clients,
         evaluate_fn=evaluate_fn,
+        # Reproducibility: the client's local shuffle must be a function of
+        # (run seed, client id, round), not of whichever Ray worker process
+        # happened to execute the client. Flower sends no round number to
+        # fit() unless a strategy supplies one, so without this the same seed
+        # produced different accuracies run to run
+        # (tests/test_all.py::TestDeterminism). See fl/client.py::fit.
+        on_fit_config_fn=lambda server_round: {
+            "server_round": int(server_round), "run_seed": int(seed)},
+        on_evaluate_config_fn=lambda server_round: {
+            "server_round": int(server_round), "run_seed": int(seed)},
+        # Reproducibility: without an explicit initial model, Flower asks one
+        # RANDOMLY CHOSEN virtual client for its parameters
+        # (server.py::_get_initial_parameters), and that client builds its
+        # model inside a Ray worker whose RNG this code never seeded. Every
+        # run therefore started from a different global model -- visible as a
+        # different round-0 accuracy for the same seed. `global_model` is
+        # constructed in this process after set_all_seeds(seed), so handing it
+        # over makes round 0 (and everything downstream of it) a function of
+        # the seed alone.
+        initial_parameters=fl.common.ndarrays_to_parameters(
+            global_model.get_parameters()),
     )
 
     adv_ratio = config.get("adversarial", {}).get("attack_ratio", 0.3)
@@ -212,13 +298,18 @@ def make_strategy(
             attack_type=attack_type,
             attack_kwargs=attack_kwargs,
             malicious_ids=malicious_ids,
+            # Supplies enable_overhead_tracking so FedAvg's own server-side
+            # aggregation time is measured under the same flag as TV-FLIDS's;
+            # Table XII's relative figure needs a measured denominator.
+            config=config,
             **common_kwargs,
         )
 
     elif strategy_name == "krum":
         return KrumStrategy(
             num_clients=num_clients,
-            num_byzantine=n_byzantine,
+            num_byzantine=override.get("num_byzantine", n_byzantine),
+            m=override.get("m", None),
             global_model=global_model,
             attack_type=attack_type,
             attack_kwargs=attack_kwargs,
@@ -227,7 +318,7 @@ def make_strategy(
         )
 
     elif strategy_name == "trimmed_mean":
-        beta = min(0.35, adv_ratio + 0.05)
+        beta = override.get("beta", min(0.35, adv_ratio + 0.05))
         return TrimmedMeanStrategy(
             beta=beta,
             global_model=global_model,
@@ -282,6 +373,28 @@ def make_strategy(
             **common_kwargs,
         )
 
+    elif strategy_name == "bucketing":
+        return BucketingStrategy(
+            bucket_size=2,
+            beta=min(0.35, adv_ratio + 0.05),
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            seed=seed,
+            **common_kwargs,
+        )
+
+    elif strategy_name == "deepsight":
+        return DeepSightStrategy(
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            seed=seed,
+            **common_kwargs,
+        )
+
     elif strategy_name in ("tvflids", "tvflids_adaptive", "tvflids_fixed"):
         adaptive = (strategy_name != "tvflids_fixed")
         return TVFLIDSStrategy(
@@ -291,7 +404,11 @@ def make_strategy(
             model=global_model,
             device=device,
             adaptive=adaptive,
-            use_adaptive_thresholds=False,
+            # None => read `verification.adaptive_thresholds` from the config
+            # (default true, matching paper Section IV-A / Table IV footnote).
+            # This was previously hardcoded False, which silently disabled the
+            # tau_L / tau_z warmup annealing in every reported experiment.
+            use_adaptive_thresholds=None,
             known_malicious=malicious_ids,
             attack_type=attack_type,
             attack_kwargs=attack_kwargs,
@@ -302,7 +419,8 @@ def make_strategy(
     else:
         raise ValueError(f"Unknown strategy: {strategy_name}. "
                          "Choose: fedavg, krum, trimmed_mean, fltrust, "
-                         "foolsgold, flame, rfa, tvflids, tvflids_fixed")
+                         "foolsgold, flame, rfa, bucketing, deepsight, "
+                         "tvflids, tvflids_fixed")
 
 
 # ── Global Model Evaluator ────────────────────────────────────────────────────
@@ -364,6 +482,39 @@ def predict_global_model(
 
 # ── Main Runner ───────────────────────────────────────────────────────────────
 
+def _load_completed_run(log_dir: str, n_rounds: int):
+    """Return a completed run's own stored summary, or None.
+
+    Guards, all of which must pass:
+      * experiment_log.json exists and parses;
+      * it logged exactly n_rounds rounds (a truncated run is not complete);
+      * it carries a non-empty summary with a final_accuracy.
+
+    Returns the summary dict exactly as run_experiment originally returned it.
+    Nothing is synthesised: if any guard fails the caller re-runs the cell.
+    """
+    path = os.path.join(log_dir, "experiment_log.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            blob = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+    rounds = blob.get("rounds") or []
+    summary = blob.get("summary") or {}
+    # An n-round run logs n+1 evaluation points: round 0 is the pre-training
+    # centralized evaluation of the initial global model, rounds 1..n are the
+    # FL rounds. Anything short of that is a truncated run, not a complete one.
+    if len(rounds) != n_rounds + 1:
+        return None
+    if max((r.get("round", -1) for r in rounds), default=-1) != n_rounds:
+        return None
+    if "final_accuracy" not in summary:
+        return None
+    return summary
+
+
 def run_experiment(
     strategy_name: str = "tvflids",
     attack_config_name: str = "label_flip_30",
@@ -376,6 +527,9 @@ def run_experiment(
     log_dir: Optional[str] = None,
     verbose: bool = True,
     model_type: str = "mlp",
+    val_size: int = 2000,
+    protocol: str = "main",
+    strategy_kwargs_override: Optional[dict] = None,
 ) -> Dict:
     """
     Run a complete FL experiment end-to-end.
@@ -383,7 +537,7 @@ def run_experiment(
     Args:
         strategy_name:      FL strategy to use.
         attack_config_name: Key from ATTACK_CONFIGS dict.
-        dataset:            Dataset name ('nslkdd' or 'unswnb15').
+        dataset:            Dataset name ('nslkdd', 'unswnb15', or 'ciciot2023').
         partition_type:     'iid' or 'noniid'.
         alpha:              Dirichlet α for non-IID partitioning.
         seed:               Random seed.
@@ -391,6 +545,14 @@ def run_experiment(
         config_path:        Path to FL config YAML.
         log_dir:            Override default log directory.
         verbose:            Print progress.
+        val_size:           Server validation set D_val size (paper: 2,000).
+        protocol:           'main' or 'leakage_free' data-preparation protocol
+                             (see setup_data() / nslkdd_pipeline.build_pipeline()).
+        strategy_kwargs_override: Optional dict of constructor-kwarg overrides
+            passed through to make_strategy() (e.g. {"num_byzantine": 4} for
+            krum, {"beta": 0.1} for trimmed_mean). Used by
+            experiments/run_hyperparameter_sweep.py (audit IDs E10/E11) to
+            sweep baseline hyperparameters. None preserves prior behavior.
 
     Returns:
         Dict with final metrics summary.
@@ -426,6 +588,12 @@ def run_experiment(
         "flip_ratio":    1.0,
         "target_class":  0,
         "gamma":         atk_cfg.get("gamma", 2.0),
+        # ACK1 ("Check-1 evasion"): auxiliary-loss proxy-D_val training.
+        "proxy_val_ratio": atk_cfg.get("proxy_val_ratio", 0.15),
+        "aux_loss_weight": atk_cfg.get("aux_loss_weight", 0.5),
+        # ACK2 ("Check-2 coalition evasion"): coalition shift magnitude.
+        "poison_strength": atk_cfg.get("poison_strength", 1.0),
+        "shift_scale":     atk_cfg.get("shift_scale", 1.0),
     }
     attack_kwargs["seed"] = seed
 
@@ -444,17 +612,40 @@ def run_experiment(
     if log_dir is None:
         log_dir = (f"results/logs/{strategy_name}_{attack_config_name}_"
                    f"{partition_type}_seed{seed}")
+
+    # ── Idempotent resume (campaign infrastructure, off by default) ────
+    # A full campaign is hundreds of independent (strategy, attack, seed)
+    # cells run over many hours; a crash or a reboot part-way through must
+    # not force the completed cells to be recomputed. With TVFLIDS_RESUME=1,
+    # a cell whose own experiment_log.json is already on disk AND complete
+    # (all n_rounds logged, a summary present) returns that run's own stored
+    # summary verbatim.
+    #
+    # This can only ever replay a genuine prior execution of this same cell:
+    # it reads the artifact that run wrote, computes nothing, and refuses
+    # anything short of a complete log. It is deliberately opt-in so that a
+    # default invocation always executes.
+    if os.getenv("TVFLIDS_RESUME", "0") == "1":
+        cached = _load_completed_run(log_dir, n_rounds)
+        if cached is not None:
+            if verbose:
+                print(f"[Resume] {log_dir}: complete ({n_rounds} rounds) - "
+                      f"reusing stored summary, not re-running.")
+            return cached
+
     logger = ExperimentLogger(log_dir, experiment_name=strategy_name)
     logger.log_config({
         "strategy": strategy_name, "attack": attack_config_name,
         "dataset": dataset, "partition_type": partition_type,
-        "alpha": alpha, "seed": seed, **fl_cfg,
+        "alpha": alpha, "seed": seed, "val_size": val_size,
+        "protocol": protocol, **fl_cfg,
     })
 
     # ── Data preparation ──────────────────────────────────────────────
     client_data, X_test, y_test, X_val, y_val, class_weights = setup_data(
         config, dataset=dataset, seed=seed,
         partition_type=partition_type, alpha=alpha,
+        val_size=val_size, protocol=protocol,
     )
 
     input_dim  = X_test.shape[1]
@@ -502,7 +693,11 @@ def run_experiment(
     metrics_tracker = ExperimentMetrics(
         class_names=class_names[:num_classes] if class_names else None
     )
-    overhead_tracker = OverheadTracker()
+    # NOTE: per-stage compute timing lives on the strategy itself
+    # (TVFLIDSStrategy.overhead_tracker, instrumented inside aggregate_fit) and
+    # is read back into `summary["compute_overhead_ms"]` at the end of this
+    # function. A second, never-populated tracker used to be constructed here,
+    # which is why Table XII had no instrumented source in the code path.
 
     # Store round-by-round results
     round_results: List[Dict] = []
@@ -565,6 +760,7 @@ def run_experiment(
         malicious_ids=malicious_ids,
         seed=seed,
         evaluate_fn=evaluate_fn,
+        strategy_kwargs_override=strategy_kwargs_override,
     )
     strategy_container.strategy = strategy
 
@@ -616,6 +812,19 @@ def run_experiment(
                         f"seed{seed}.pdf"
                     ),
                 )
+            # Figure 5 (results/figures/fig5_adaptive_weights.pdf). Like
+            # Figure 4, this was listed as required by scripts/check_results.py
+            # while figure5_adaptive_weights had no call site anywhere, so the
+            # file could never be produced. Only the adaptive strategy has a
+            # weight history to plot; tvflids_fixed holds the weights constant
+            # by definition.
+            weight_history = getattr(strategy.trust_scorer, "weight_history", None)
+            if weight_history:
+                from evaluation.visualization import figure5_adaptive_weights
+                figure5_adaptive_weights(
+                    {attack_config_name: weight_history},
+                    save_path="results/figures/fig5_adaptive_weights.pdf",
+                )
         except Exception as e:
             print(f"[Warning] Figure generation failed: {e}")
 
@@ -665,6 +874,41 @@ def run_experiment(
         "model_params":       global_model.count_parameters(),
     })
 
+    # Per-stage computational overhead (paper Table XII). Only TVFLIDSStrategy
+    # instruments its aggregate_fit stages; baselines expose no such breakdown,
+    # so this key is absent for them rather than being filled with zeros.
+    _ohead_summary = {}
+    if hasattr(strategy, "get_overhead_summary"):
+        try:
+            _ohead_summary = strategy.get_overhead_summary()
+        except Exception as e:
+            print(f"[Warning] overhead summary unavailable: {e}")
+    if _ohead_summary:
+        summary["compute_overhead_ms"] = _ohead_summary
+        try:
+            OverheadTracker.print_report(strategy.overhead_tracker)
+        except Exception:
+            pass
+
+    # ── Figure-backing artifacts (manuscript Figures 3 and 4) ─────────
+    # These live only on the strategy object during the run. Persisting them
+    # is what gives scripts/generate_manuscript_figures.py a disk artifact to
+    # read, closing the gap where Figures 3 and 4 had no regeneration path.
+    logger.log_extra("malicious_ids", list(malicious_ids))
+    if hasattr(strategy, "get_trust_history"):
+        try:
+            logger.log_extra(
+                "trust_history",
+                {str(cid): [float(v) for v in hist]
+                 for cid, hist in strategy.get_trust_history().items()},
+            )
+        except Exception as e:
+            print(f"[Warning] trust history not persisted: {e}")
+    if getattr(strategy, "round_logs", None):
+        # Carries adaptive_alpha / adaptive_beta / adaptive_gamma per round
+        # (Figure 4) alongside the realized tau_z / tau_L and gate counts.
+        logger.log_extra("strategy_round_logs", strategy.round_logs)
+
     logger.log_summary(summary)
     logger.save()
 
@@ -709,19 +953,28 @@ Examples:
     )
     parser.add_argument("--strategy",   type=str, default="tvflids",
                         choices=["fedavg", "krum", "trimmed_mean", "fltrust",
-                                 "foolsgold", "flame", "rfa", "tvflids", "tvflids_fixed"],
+                                 "foolsgold", "flame", "rfa", "bucketing", "deepsight",
+                                 "tvflids", "tvflids_fixed"],
                         help="Aggregation strategy")
     parser.add_argument("--attack",     type=str, default="label_flip_30",
                         choices=list(ATTACK_CONFIGS.keys()),
                         help="Attack configuration")
     parser.add_argument("--dataset",    type=str, default="nslkdd",
-                        choices=["nslkdd", "unswnb15"],
+                        choices=["nslkdd", "unswnb15", "ciciot2023"],
                         help="Dataset name")
     parser.add_argument("--partition",  type=str, default="noniid",
                         choices=["iid", "noniid"],
                         help="Data partitioning strategy")
     parser.add_argument("--alpha",      type=float, default=0.5,
                         help="Dirichlet alpha for non-IID (0.5=moderate, 0.1=extreme)")
+    parser.add_argument("--val-size",   type=int, default=2000,
+                        help="Server validation set (D_val) size (paper: 2000)")
+    parser.add_argument("--protocol",   type=str, default="main",
+                        choices=["main", "leakage_free"],
+                        help="Data-preparation protocol: 'main' (global SMOTE then "
+                             "draw D_val from the balanced pool, paper's main-table "
+                             "protocol) or 'leakage_free' (D_val drawn pre-SMOTE, "
+                             "SMOTE applied per-client post-partition, paper Table VI)")
     parser.add_argument("--seed",       type=int, default=42,
                         help="Random seed")
     parser.add_argument("--rounds",     type=int, default=None,
@@ -750,6 +1003,8 @@ Examples:
         log_dir=args.log_dir,
         verbose=not args.quiet,
         model_type=args.model,
+        val_size=args.val_size,
+        protocol=args.protocol,
     )
 
     print("\n[Done] Final results:")
