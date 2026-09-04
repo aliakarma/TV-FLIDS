@@ -1,4 +1,4 @@
-.PHONY: install install-pip data verify-env check-results smoke test full-comparison ablation figures dataset-comparison multi-attack noniid-sweep extended-significance hp-sweep-baseline hp-sweep-tvflids leakage-free ciciot2023 theory manuscript-figures check-manuscript-figures check-manuscript paper reproduce clean help
+.PHONY: install install-pip data verify-env check-results smoke test manuscript-tables check-manuscript-tables campaign-manifest full-comparison ablation figures dataset-comparison multi-attack noniid-sweep extended-significance hp-sweep-baseline hp-sweep-tvflids leakage-free ciciot2023 theory manuscript-figures check-manuscript-figures check-manuscript paper reproduce clean help
 
 # ── Environment ──────────────────────────────────────────────────────────────
 install:
@@ -115,6 +115,17 @@ ciciot2023:
 manuscript-figures:
 	python scripts/generate_manuscript_figures.py
 
+# Converts result artifacts into the table bodies the manuscript inputs
+# (Paper/tables/tab_*.tex). Same refusal rule as the figures: a table
+# whose backing artifact does not exist is SKIPPED, never invented, and
+# the manuscript keeps its provisional, explicitly-labelled rows.
+manuscript-tables:
+	python scripts/generate_manuscript_tables.py
+
+# Report-only; exits non-zero if any table is still unbacked.
+check-manuscript-tables:
+	python scripts/generate_manuscript_tables.py --check
+
 # Report-only; exits non-zero if any data-driven figure is still unbacked.
 check-manuscript-figures:
 	python scripts/generate_manuscript_figures.py --check
@@ -127,7 +138,7 @@ check-manuscript:
 	python scripts/check_manuscript.py
 
 # Regenerate figure data, then rebuild both PDFs.
-paper: manuscript-figures
+paper: manuscript-figures manuscript-tables
 	latexmk -pdf -cd Paper/TV-FLIDS.tex
 	latexmk -pdf -cd Paper/TV-FLIDS_supplementary.tex
 
@@ -171,6 +182,8 @@ help:
 	@echo ""
 	@echo "  Manuscript figures (results -> Paper/figures/*.tex):"
 	@echo "    make manuscript-figures        Regenerate Figures 2-5 + S1 from results"
+	@echo "    make manuscript-tables         Regenerate Tables V-XII + S1-S4 from results"
+	@echo "    make check-manuscript-tables   Report which tables are backed by real output"
 	@echo "    make check-manuscript-figures  Report which figures are backed by real data"
 	@echo "    make paper                     Regenerate figure data, then build both PDFs"
 	@echo "    make check-manuscript          Integrity-check the .tex sources and built PDFs"

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import io
 import json
 import os
 import sys
@@ -114,15 +115,41 @@ def _best_index(values: List[Optional[Tuple[float, float]]], metric: str) -> Opt
 
 
 def _emit(name: str, lines: List[str]) -> None:
-    os.makedirs(OUT_DIR, exist_ok=True)
-    path = os.path.join(OUT_DIR, f"tab_{name}.tex")
-    header = [
+    """Write a complete tabular: the manuscript's own head, the generated rows,
+    the manuscript's own foot.
+
+    Head and foot are extracted from the manuscript by
+    scripts/wire_manuscript_tables.py, so a generated table can never disagree
+    with the column specification or header the paper declares. If either is
+    missing the table is skipped rather than emitted with a guessed header.
+    """
+    head_path = os.path.join(OUT_DIR, f"tab_{name}_head.tex")
+    foot_path = os.path.join(OUT_DIR, f"tab_{name}_foot.tex")
+    if not (os.path.exists(head_path) and os.path.exists(foot_path)):
+        _skip(name, "no head/foot extracted - run scripts/wire_manuscript_tables.py")
+        return
+
+    def _strip_comments(text: str) -> str:
+        return "\n".join(ln for ln in text.split("\n")
+                         if not ln.lstrip().startswith("%"))
+
+    head = _strip_comments(io.open(head_path, encoding="utf-8").read()).strip("\n")
+    foot = _strip_comments(io.open(foot_path, encoding="utf-8").read()).strip("\n")
+
+    banner = [
         "% GENERATED FILE - do not edit by hand.",
         "% Produced by scripts/generate_manuscript_tables.py from the result",
-        "% artifacts named in its log output. Regenerate rather than editing.",
+        "% artifacts named in its log output. Head and foot are the",
+        "% manuscript's own, extracted by scripts/wire_manuscript_tables.py.",
+        "% Regenerate rather than editing: make manuscript-tables",
     ]
-    with open(path, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write("\n".join(header + lines) + "\n")
+    body = ["			" + ln for ln in lines]
+    out = "\n".join(banner + [head] + body + [foot]) + "\n"
+
+    os.makedirs(OUT_DIR, exist_ok=True)
+    path = os.path.join(OUT_DIR, f"tab_{name}.tex")
+    with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(out)
     _written.append(f"tab_{name}.tex")
     print(f"  -> wrote Paper/tables/tab_{name}.tex ({len(lines)} row(s))")
 
