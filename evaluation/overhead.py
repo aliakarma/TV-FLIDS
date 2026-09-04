@@ -22,6 +22,11 @@ class OverheadTracker:
         # training, which happens inside the Flower client and is timed
         # separately by the caller as "client_training" when available.
         self.timings: Dict[str, List[float]] = {
+            # Mean per-client local-training wall clock for the round, as
+            # reported by the clients themselves (fl/client.py returns
+            # train_time_ms). It is the first row of paper Table XII, and the
+            # component of the FedAvg total that the server never sees.
+            "client_training": [],
             "client_processing": [],
             "verification":      [],
             "trust_scoring":     [],

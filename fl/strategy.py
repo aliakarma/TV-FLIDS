@@ -121,6 +121,17 @@ class TVFLIDSStrategy(FedAvg):
         # the same seed drift run to run.
         results = order_results(results)
 
+        # Record the round's mean per-client local-training time (paper
+        # Table XII, first row). Clients report it in their FitRes metrics.
+        if self.track_overhead:
+            _ct = [float(fr.metrics.get("train_time_ms", 0.0))
+                   for _, fr in results
+                   if getattr(fr, "metrics", None)
+                   and "train_time_ms" in fr.metrics]
+            if _ct:
+                self.overhead_tracker.timings["client_training"].append(
+                    float(np.mean(_ct)) / 1000.0)
+
         # Clear per-round eval cache to avoid unbounded growth and ensure freshness
         self._eval_cache.clear()
 

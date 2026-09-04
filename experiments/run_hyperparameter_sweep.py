@@ -34,24 +34,28 @@ thin backward-compatible CLI shim that delegates here (`--target baseline`).
     One-factor-at-a-time sweep of TV-FLIDS's own trust/verification
     hyperparameters, holding all others at their config/fl_config.yaml
     default:
-      - trust.meta_lr    (grid: [0.001, 0.005, 0.01, 0.05], default 0.01)
-      - trust.min_trust  == tau_min (grid: [0.001, 0.005, 0.01, 0.05], default 0.01)
-      - verification.warmup_rounds (grid: [5, 10, 20, 30], default 20)
+      - trust.memory_decay == lambda  (grid: [0.7, 0.8, 0.9, 0.95], default 0.9)
+      - trust.min_trust    == tau_min (grid: [0.001, 0.01, 0.05], default 0.01)
+      - trust.meta_lr      == eta_meta (grid: [0.001, 0.01, 0.1], default 0.01)
+      - verification.warmup_rounds == T_warm (grid: [5, 10, 20, 30], default 20)
 
-    Symbol mapping note: Paper Supp. Table S2 lists lambda, tau_min,
-    eta_meta, and warmup rounds as four separate knobs. In code,
-    trust.min_trust is unambiguously tau_min (see trust/trust_scorer.py),
-    and verification.warmup_rounds is unambiguously the warmup-rounds
-    knob. However AdaptiveTrustScorer.__init__ (trust/adaptive_trust_scorer.py)
-    exposes exactly one learning-rate-shaped constructor argument, meta_lr
-    (passed straight into `torch.optim.Adam([self.log_weights], lr=meta_lr)`)
-    — there is no second, distinct code parameter for lambda vs eta_meta.
-    This sweep therefore treats the paper's lambda and eta_meta as
-    referring to the same underlying `trust.meta_lr` knob and sweeps it
-    once, rather than fabricating a second parameter that has no
-    implementation. If a future revision of TV-FLIDS's trust module adds a
-    genuinely distinct second learning-rate-like parameter, this mapping
-    should be revisited.
+    Symbol mapping note. Paper Supp. Table S2 lists lambda, tau_min,
+    eta_meta and T_warm as four separate knobs, and all four exist in code:
+
+      lambda   -> trust.memory_decay (TrustScorer.__init__'s memory_decay,
+                  stored as self.decay). It is the EMA retention factor, not
+                  a learning rate: the main paper's Section IX quotes its
+                  horizon as 1/(1 - lambda) = 10 rounds at lambda = 0.9, and
+                  Table S2 labels its block "Memory decay lambda" with the
+                  grid {0.7, 0.8, 0.9, 0.95}.
+      eta_meta -> trust.meta_lr, passed to
+                  torch.optim.Adam([self.log_weights], lr=meta_lr).
+
+    An earlier revision of this module asserted that lambda and eta_meta were
+    two names for trust.meta_lr and swept only the latter, which left Table
+    S2's memory-decay block unreachable from any runner. That reading cannot
+    be right -- a retention factor in [0, 1) with an EMA horizon is not a
+    learning rate -- and it is corrected here.
 
 Usage:
     python experiments/run_hyperparameter_sweep.py --target baseline
@@ -80,37 +84,65 @@ from evaluation.statistical_testing import SEEDS
 METRICS = ["final_accuracy", "final_f1_macro", "final_attack_success_rate"]
 
 # ── Baseline grids (audit E10, Supp. Table S1) ───────────────────────────
+# Grids are the ones the manuscript states, not a nearby approximation of
+# them. Supplementary Table S1 sweeps Krum's assumed tolerance over
+# {4, 6, 8, 10} and Trimmed Mean's trim fraction over {0.10, 0.15, 0.20, 0.25},
+# each bracketing its default on BOTH sides (f' = 6, beta_TM = 0.15). The grids
+# previously coded here ({2,4,6,8} and {0.05,...,0.20}) put each default at the
+# top of its range, so the sweep could not have shown a default to be
+# conservative -- the direction the text explicitly asks about.
 BASELINE_SWEEPS = {
     "krum_f_prime": {
         "strategy": "krum",
         "override_key": "num_byzantine",
-        "grid": [2, 4, 6, 8],
+        "grid": [4, 6, 8, 10],
+        "default": 6,
         "paper_symbol": "Krum f'",
     },
     "trimmed_mean_beta": {
         "strategy": "trimmed_mean",
         "override_key": "beta",
-        "grid": [0.05, 0.10, 0.15, 0.20],
+        "grid": [0.10, 0.15, 0.20, 0.25],
+        "default": 0.15,
         "paper_symbol": "Trimmed-Mean beta",
     },
 }
 
 # ── TV-FLIDS grids (audit E11, Supp. Table S2) ───────────────────────────
+# Supplementary Table S2 tabulates four factors: memory decay lambda, trust
+# floor tau_min, meta-learning rate eta_meta, and warmup length T_warm. The
+# memory-decay factor had no entry here at all, so Table S2's first block was
+# unreachable from the runner; and the eta_meta grid stopped at 0.05 where the
+# table reports a decade in either direction (0.001, 0.01, 0.1).
+#
+# T_warm keeps the four-point grid {5, 10, 20, 30} rather than the table's
+# three: the campaign specifically needs T_warm = 5 to test the corrected
+# annealing schedule, which was disabled in the code path that produced the
+# tabulated values. Table S2 gains the fourth row accordingly.
 TVFLIDS_SWEEPS = {
-    "meta_lr": {
-        "section": "trust", "key": "meta_lr",
-        "grid": [0.001, 0.005, 0.01, 0.05],
-        "paper_symbol": "lambda / eta_meta (see module docstring: same code knob)",
+    "memory_decay": {
+        "section": "trust", "key": "memory_decay",
+        "grid": [0.7, 0.8, 0.9, 0.95],
+        "default": 0.9,
+        "paper_symbol": "lambda (memory decay)",
     },
     "min_trust": {
         "section": "trust", "key": "min_trust",
-        "grid": [0.001, 0.005, 0.01, 0.05],
-        "paper_symbol": "tau_min",
+        "grid": [0.001, 0.01, 0.05],
+        "default": 0.01,
+        "paper_symbol": "tau_min (trust floor)",
+    },
+    "meta_lr": {
+        "section": "trust", "key": "meta_lr",
+        "grid": [0.001, 0.01, 0.1],
+        "default": 0.01,
+        "paper_symbol": "eta_meta (meta-learning rate)",
     },
     "warmup_rounds": {
         "section": "verification", "key": "warmup_rounds",
         "grid": [5, 10, 20, 30],
-        "paper_symbol": "warmup rounds",
+        "default": 20,
+        "paper_symbol": "T_warm (gate warmup length)",
     },
 }
 
@@ -347,8 +379,11 @@ def run_tvflids_hyperparameter_sweep(
             "attack": attack,
             "num_rounds": num_rounds,
             "note": (
-                "lambda and eta_meta (paper Supp. Table S2) both map to the "
-                "single code parameter trust.meta_lr; see module docstring."
+                "Paper Supp. Table S2's four factors map to four distinct "
+                "code parameters: lambda -> trust.memory_decay, "
+                "tau_min -> trust.min_trust, eta_meta -> trust.meta_lr, "
+                "T_warm -> verification.warmup_rounds. See module docstring "
+                "for why the earlier lambda == eta_meta mapping was wrong."
             ),
         },
         "raw": raw,

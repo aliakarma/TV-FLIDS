@@ -1,0 +1,283 @@
+{
+  "campaign": "TV-FLIDS full experimental campaign",
+  "manifest_version": 1,
+  "started_utc": "2026-09-04T10:26:00.832548Z",
+  "finished_utc": null,
+  "git": {
+    "git_commit": "f601b6de0ea1677cc2be7b3bd62f57cb5257de2e",
+    "git_branch": "main",
+    "git_describe": "f601b6d-dirty",
+    "git_dirty": true,
+    "git_dirty_paths": [
+      "github/workflows/ci.yml",
+      ".gitignore",
+      "attacks/__init__.py",
+      "attacks/adversarial.py",
+      "data/__init__.py",
+      "data/partitioning.py",
+      "data/preprocessing/__init__.py",
+      "data/preprocessing/nslkdd_pipeline.py",
+      "data/preprocessing/unswnb15_pipeline.py",
+      "environment.yml",
+      "evaluation/__init__.py",
+      "evaluation/overhead.py",
+      "evaluation/statistical_testing.py",
+      "evaluation/visualization.py",
+      "experiments/__init__.py",
+      "experiments/run_ablation.py",
+      "experiments/run_dataset_comparison.py",
+      "experiments/run_full_comparison.py",
+      "experiments/run_ratio_sweep.py",
+      "extras/mnist_fl_pipeline.py",
+      "fl/__init__.py",
+      "fl/baselines/__init__.py",
+      "models/__init__.py",
+      "models/mlp.py",
+      "requirements.txt",
+      "results/_QUARANTINED_MOCK/logs_comparison/fedavg_label_flip_30_seed123/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fedavg_label_flip_30_seed1337/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fedavg_label_flip_30_seed42/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fedavg_label_flip_30_seed456/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fedavg_label_flip_30_seed789/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/flame_label_flip_30_seed123/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/flame_label_flip_30_seed1337/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/flame_label_flip_30_seed42/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/flame_label_flip_30_seed456/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/flame_label_flip_30_seed789/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fltrust_label_flip_30_seed123/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fltrust_label_flip_30_seed1337/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fltrust_label_flip_30_seed42/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fltrust_label_flip_30_seed456/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/fltrust_label_flip_30_seed789/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/foolsgold_label_flip_30_seed123/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/foolsgold_label_flip_30_seed1337/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/foolsgold_label_flip_30_seed42/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/foolsgold_label_flip_30_seed456/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/foolsgold_label_flip_30_seed789/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/krum_label_flip_30_seed123/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/krum_label_flip_30_seed1337/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/krum_label_flip_30_seed42/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/krum_label_flip_30_seed456/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/krum_label_flip_30_seed789/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/rfa_label_flip_30_seed123/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/rfa_label_flip_30_seed1337/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/rfa_label_flip_30_seed42/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/rfa_label_flip_30_seed456/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/rfa_label_flip_30_seed789/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/trimmed_mean_label_flip_30_seed123/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/trimmed_mean_label_flip_30_seed1337/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/trimmed_mean_label_flip_30_seed42/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/trimmed_mean_label_flip_30_seed456/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/trimmed_mean_label_flip_30_seed789/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/tvflids_label_flip_30_seed123/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/tvflids_label_flip_30_seed1337/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/tvflids_label_flip_30_seed42/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/tvflids_label_flip_30_seed456/experiment_log.json",
+      "results/_QUARANTINED_MOCK/logs_comparison/tvflids_label_flip_30_seed789/experiment_log.json",
+      "results/_QUARANTINED_MOCK/mock_phase7_results.py.DO_NOT_RUN",
+      "results/_QUARANTINED_MOCK/tables/ablation_results.json",
+      "results/_QUARANTINED_MOCK/tables/full_comparison_results.json",
+      "results/_QUARANTINED_MOCK/tables/ratio_sweep_results.json",
+      "results/_QUARANTINED_MOCK/tables/table1.tex.DO_NOT_CITE",
+      "results/tables/proposition1_real.json",
+      "scripts/check_results.py",
+      "scripts/run_theory_validation.py",
+      "tests/test_all.py",
+      "tests/test_integration.py",
+      "tests/test_overhead_tracking.py",
+      "tests/test_val_size_regression.py",
+      "tests/test_warmup_schedule.py",
+      "theory/__init__.py",
+      "trust/__init__.py",
+      "trust/adaptive_trust_scorer.py",
+      "trust/verification.py",
+      "utils/__init__.py",
+      "utils/seed.py"
+    ]
+  },
+  "environment": {
+    "python_version": "3.10.12",
+    "python_executable": "/home/ali_akarma/miniconda3/envs/tvflids_cpu/bin/python",
+    "packages": {
+      "torch": "2.1.0+cpu",
+      "flwr": "1.6.0",
+      "ray": "2.6.3",
+      "numpy": "1.26.2",
+      "scipy": "1.11.4",
+      "pandas": "2.1.3",
+      "sklearn": "1.3.2",
+      "imblearn": "0.11.0",
+      "hdbscan": "unknown",
+      "matplotlib": "3.8.2",
+      "statsmodels": "0.14.1"
+    }
+  },
+  "hardware": {
+    "hostname": "AliAkarma",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "cpu_count_logical": 12,
+    "cpu_model": "AMD Ryzen 5 5600H with Radeon Graphics",
+    "mem_total_kb": 10183880,
+    "cuda_available": false,
+    "cuda_version": null,
+    "gpu_names": [],
+    "torch_num_threads": 6
+  },
+  "configs": [
+    {
+      "path": "config/fl_config.yaml",
+      "exists": true,
+      "size_bytes": 2527,
+      "sha256": "f9835a6d51408914f8b7baf44ff0fd9e2a20b8c0a5b881e5465286fe3569951b",
+      "content": "federated_learning:\n  num_clients: 20\n  num_rounds: 100\n  fraction_fit: 0.5\n  fraction_evaluate: 0.3\n  local_epochs: 5\n  local_batch_size: 256\n  local_lr: 0.001\n\ntrust:\n  # Signal-mixing weights (alpha, beta, gamma) for the trust blend of paper\n  # Eq. (6). Table IV specifies \"Initial alpha,beta,gamma = 1/3 each\", so these\n  # are 1/3 each and NOT 0.4/0.4/0.2 as an earlier revision shipped.\n  #\n  # Who reads these three keys:\n  #   * `--strategy tvflids_fixed` (ablation A6) -- TrustScorer holds them fixed\n  #     for the whole run, so the CLI default must already BE the A6 setting.\n  #     experiments/run_ablation.py used to supply 1/3 via trust_override on top\n  #     of a 0.4/0.4/0.2 base, which made a direct CLI invocation silently\n  #     disagree with the ablation runner (and with the paper).\n  #   * `--strategy tvflids` (the proposed method) -- IGNORED. AdaptiveTrustScorer\n  #     always initializes log-weights at 0, i.e. softmax(0) = (1/3, 1/3, 1/3),\n  #     per Eq. (11); it never reads these keys. The values below therefore have\n  #     no effect on the adaptive method either before or after this correction.\n  # Sum must equal 1.0 to within 1e-5 (asserted in trust/trust_scorer.py).\n  alpha: 0.3333333333333333\n  beta: 0.3333333333333333\n  gamma: 0.3333333333333333\n  memory_decay: 0.9\n  min_trust: 0.01\n  meta_lr: 0.01\n\nverification:\n  # Nominal (post-warmup) gate thresholds \u2014 paper Table IV.\n  loss_threshold: 0.0        # tau_L  (Check 1)\n  cosine_threshold: 0.0      # tau_C  (Check 2) \u2014 fixed, never annealed\n  zscore_threshold: 2.5      # tau_z  (Check 3)\n  warmup_rounds: 20          # T_warm \u2014 drives BOTH annealing schedules\n  # Warmup annealing of tau_L and tau_z (paper Section IV-A, Eq. 5 and the\n  # Table IV footnote). Set false for a fixed-threshold gate (ablation).\n  adaptive_thresholds: true\n  warmup_loss_threshold: -0.1   # tau_L(0); annealed linearly to loss_threshold\n  warmup_zscore_offset: 0.5     # tau_z(0) = zscore_threshold + this (= 3.0)\n\nadversarial:\n  attack_ratio: 0.3\n  attack_type: \"label_flip\"\n  gradient_scale_factor: 10.0\n  noise_std: 0.5\n  backdoor_poison_ratio: 0.1\n\nevaluation:\n  seeds: [42, 123, 456, 789, 1337]\n  primary_seed: 42\n  target_accuracy: 0.88\n\n# Optional: enable to log last-round client params for Proposition 1 verification\nlog_client_params: false\n\n# Per-stage wall-clock instrumentation for the overhead table (paper Table XII).\n# Adds sub-millisecond bookkeeping per round; set false to disable entirely.\nenable_overhead_tracking: true\n"
+    },
+    {
+      "path": "config/dataset_config.yaml",
+      "exists": true,
+      "size_bytes": 1299,
+      "sha256": "eda41b9a6c83e4d4d754b9dd81ba655f2716ff380a07eba78c2ff3262d7b295f",
+      "content": "datasets:\n  nslkdd:\n    train_url: \"https://raw.githubusercontent.com/defcom17/NSL_KDD/master/KDDTrain+.txt\"\n    test_url: \"https://raw.githubusercontent.com/defcom17/NSL_KDD/master/KDDTest+.txt\"\n    train_file: \"data/raw/KDDTrain+.txt\"\n    test_file: \"data/raw/KDDTest+.txt\"\n    input_dim: 41\n    num_classes: 5\n    class_names: [\"Normal\", \"DoS\", \"Probe\", \"R2L\", \"U2R\"]\n\n  unswnb15:\n    train_file: \"data/raw/UNSW_NB15_training-set.csv\"\n    test_file: \"data/raw/UNSW_NB15_testing-set.csv\"\n    input_dim: 49\n    num_classes: 10\n\n  ciciot2023:\n    # CIC-IoT-2023 (Neto et al. 2023) ships as ~169 per-scenario CSV shards;\n    # concatenate and split them into these two files before running\n    # experiments -- see data/preprocessing/ciciot2023_pipeline.py docstring.\n    train_file: \"data/raw/CICIoT2023_train.csv\"\n    test_file: \"data/raw/CICIoT2023_test.csv\"\n    input_dim: 46\n    num_classes: 8\n    class_names: [\"Benign\", \"DDoS\", \"DoS\", \"Recon\", \"WebBased\", \"BruteForce\", \"Spoofing\", \"Mirai\"]\n\n  mnist:\n    data_root: \"data/raw/mnist\"\n    input_dim: 784\n    num_classes: 10\n\npartitioning:\n  iid:\n    type: \"iid\"\n  noniid_moderate:\n    type: \"noniid\"\n    alpha: 0.5\n  noniid_stress:\n    type: \"noniid\"\n    alpha: 0.1\n\nserver:\n  val_size: 2000\n  val_stratified: true\n  root_dataset_fraction: 0.02\n"
+    }
+  ],
+  "datasets": [
+    {
+      "path": "data/raw/KDDTrain+.txt",
+      "exists": true,
+      "size_bytes": 19109424,
+      "sha256": "1b86d2f957b33082081bba410fe129b475efebcc13c9014c3f447c8271aadf95"
+    },
+    {
+      "path": "data/raw/KDDTest+.txt",
+      "exists": true,
+      "size_bytes": 3441513,
+      "sha256": "fa46b0935342616aa83b7c2578db355b6a7aaabbc492248172c7a1e8b7ab8f84"
+    },
+    {
+      "path": "data/raw/UNSW_NB15_training-set.csv",
+      "exists": true,
+      "size_bytes": 32293018,
+      "sha256": "bec7dd5ec88dc2a0ccc7a07879d338395ed7421750f675fd0339e07dfe0648fa"
+    },
+    {
+      "path": "data/raw/UNSW_NB15_testing-set.csv",
+      "exists": true,
+      "size_bytes": 15380800,
+      "sha256": "734fe6642edf758f7c94d7d9149426b49d202fe8e7bf0bef47392489c3c0a559"
+    },
+    {
+      "path": "data/raw/CICIoT2023_train.csv",
+      "exists": false,
+      "size_bytes": null,
+      "sha256": null
+    },
+    {
+      "path": "data/raw/CICIoT2023_test.csv",
+      "exists": false,
+      "size_bytes": null,
+      "sha256": null
+    }
+  ],
+  "seeds": [
+    42,
+    123,
+    456,
+    789,
+    1337
+  ],
+  "extended_seeds": [
+    42,
+    123,
+    456,
+    789,
+    1337,
+    2024,
+    31415,
+    8080,
+    555,
+    999
+  ],
+  "planned_experiments": [
+    {
+      "phase": "A",
+      "name": "main_comparison",
+      "make": "full-comparison",
+      "paper": "Table V, Figures 2-4"
+    },
+    {
+      "phase": "B",
+      "name": "leakage_free",
+      "make": "leakage-free",
+      "paper": "Table VI"
+    },
+    {
+      "phase": "C",
+      "name": "ablation",
+      "make": "ablation",
+      "paper": "Table VII"
+    },
+    {
+      "phase": "D",
+      "name": "noniid_sweep",
+      "make": "noniid-sweep",
+      "paper": "Table VIII"
+    },
+    {
+      "phase": "E",
+      "name": "multi_attack_matrix",
+      "make": "multi-attack",
+      "paper": "Tables IX-X"
+    },
+    {
+      "phase": "F",
+      "name": "adaptive_attacks",
+      "make": "multi-attack ACK1/ACK2",
+      "paper": "Table XI"
+    },
+    {
+      "phase": "G",
+      "name": "extended_significance",
+      "make": "extended-significance",
+      "paper": "Section VIII-B"
+    },
+    {
+      "phase": "H",
+      "name": "hp_sweep_baseline",
+      "make": "hp-sweep-baseline",
+      "paper": "Supp. Table S1"
+    },
+    {
+      "phase": "I",
+      "name": "hp_sweep_tvflids",
+      "make": "hp-sweep-tvflids",
+      "paper": "Supp. Table S2"
+    },
+    {
+      "phase": "J",
+      "name": "bucketing_deepsight",
+      "make": "full-comparison with bucketing deepsight",
+      "paper": "Supp. Table S3"
+    },
+    {
+      "phase": "K",
+      "name": "ciciot2023",
+      "make": "ciciot2023",
+      "paper": "Supp. Table S4, Figure S1"
+    },
+    {
+      "phase": "L",
+      "name": "overhead",
+      "make": "read from run summaries",
+      "paper": "Table XII"
+    },
+    {
+      "phase": "-",
+      "name": "ratio_sweep",
+      "make": "figures",
+      "paper": "Figure 5"
+    }
+  ],
+  "runs": [],
+  "artifacts": []
+}

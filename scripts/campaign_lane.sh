@@ -92,6 +92,14 @@ phase_cmd () {
             --attacks ack1_evasion_30 ack2_coalition_30 \
             --seeds $SEEDS --rounds 100 \
             --output results/tables ;;
+      N_clean_baseline)
+        # Table IX's "No attack (clean)" row. The other three
+        # attack columns come from the E matrix and the label-flip
+        # column from Phase A, but no phase ran TV-FLIDS without an
+        # attack, so that row had no source at all.
+        run_phase "$1" $PY experiments/run_multi_attack_matrix.py \
+            --strategies tvflids --attacks no_attack \
+            --seeds $SEEDS --rounds 100 ;;
       G_extended_significance)
         run_phase "$1" $PY experiments/run_extended_significance.py \
             --strategies tvflids fltrust --rounds 100 ;;
@@ -104,7 +112,8 @@ phase_cmd () {
       J_bucketing_deepsight)
         run_phase "$1" $PY experiments/run_full_comparison.py \
             --strategies bucketing deepsight --attack label_flip_30 \
-            --seeds $SEEDS --rounds 100 ;;
+            --seeds $SEEDS --rounds 100 \
+            --output results/tables/_extra_baselines ;;
       R_ratio_sweep)
         run_phase "$1" $PY experiments/run_ratio_sweep.py \
             --methods fedavg krum fltrust tvflids \

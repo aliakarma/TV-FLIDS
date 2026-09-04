@@ -3,6 +3,8 @@ fl/client.py — Flower FL client with optional adversarial attack injection.
 Reference: Guide §6.2
 """
 
+from time import perf_counter as _perf_counter
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -132,6 +134,13 @@ class TVFLIDSClient(fl.client.NumPyClient):
 
         aux_loss_weight = self.attack_kwargs.get('aux_loss_weight', 0.5)
         self.model.train()
+        # Paper Table XII's first row is the per-client local-training cost.
+        # Nothing measured it: OverheadTracker only instruments the server's
+        # aggregate_fit, so the table's client row -- and therefore the FedAvg
+        # total it is part of, and the percentage overhead computed against
+        # that total -- had no instrumented source. Timing the loop here gives
+        # the strategy a genuine per-client figure to record.
+        _train_t0 = _perf_counter()
         for _ in range(self.config.get('local_epochs', 5)):
             for Xb, yb in loader:
                 Xb, yb = Xb.to(self.device), yb.to(self.device)
@@ -148,6 +157,8 @@ class TVFLIDSClient(fl.client.NumPyClient):
                 loss.backward()
                 self.optimizer.step()
 
+        train_time_ms = (_perf_counter() - _train_t0) * 1000.0
+
         # Model-level attacks AFTER training
         new_params = self.model.get_parameters()
         if self.is_malicious:
@@ -160,7 +171,13 @@ class TVFLIDSClient(fl.client.NumPyClient):
                     new_params, noise_std=self.attack_kwargs.get('noise_std', 0.5))
 
         val_loss = self._val_loss(new_params)
-        return new_params, len(X), {'val_loss': float(val_loss)}
+        return new_params, len(X), {
+            'val_loss': float(val_loss),
+            # Local-training wall clock for this client, this round, in ms.
+            # Excludes attack application and the validation-loss pass, so it
+            # is the "client local training" row of Table XII and nothing else.
+            'train_time_ms': float(train_time_ms),
+        }
 
     def evaluate(self, parameters: NDArrays, config: dict) -> Tuple[float, int, Dict[str, Scalar]]:
         self.set_parameters(parameters)
