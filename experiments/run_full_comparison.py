@@ -185,6 +185,34 @@ def run_full_comparison(
                 save_path="results/figures/fig1_convergence.pdf",
             )
 
+        # ── Figure 2 (canonical path) ─────────────────────────────
+        # scripts/check_results.py requires results/figures/fig2_trust_evolution.pdf,
+        # but every call site of figure2_trust_evolution passed a per-run name
+        # (fig2_trust_<strategy>_seed<seed>.pdf), so the required file could
+        # never appear and `make check-results` could not pass even after a
+        # complete campaign. This is the same orphaned-output defect the
+        # closure pass fixed for Figures 4 and 5. Written from the TV-FLIDS
+        # run's own persisted trust history, or skipped if that run has none.
+        tv_log_path = os.path.join(
+            log_root, f"tvflids_{attack}_seed{seed_for_figs}", "experiment_log.json"
+        )
+        if os.path.exists(tv_log_path):
+            with open(tv_log_path, "r") as f:
+                tv_blob = json.load(f)
+            extra = tv_blob.get("extra", {}) or {}
+            trust_history = extra.get("trust_history") or {}
+            malicious_ids = extra.get("malicious_ids") or []
+            if trust_history:
+                from evaluation.visualization import figure2_trust_evolution
+                figure2_trust_evolution(
+                    {int(cid): hist for cid, hist in trust_history.items()},
+                    [int(c) for c in malicious_ids],
+                    save_path="results/figures/fig2_trust_evolution.pdf",
+                )
+            else:
+                print("[Comparison] Figure 2 skipped: the TV-FLIDS run carries "
+                      "no trust_history (rerun against the current logger).")
+
         fedavg_pred_path = os.path.join(
             log_root, f"fedavg_{attack}_seed{seed_for_figs}", "final_predictions.npz"
         )

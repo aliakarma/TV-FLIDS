@@ -65,21 +65,46 @@ def format_result(mean: float, std: float, decimals: int = 4) -> str:
     return f"{mean:{fmt}} ± {std:{fmt}}"
 
 
+# Metrics on which a LOWER value is the better outcome. A one-sided test of
+# "A is better than B" must run in the opposite direction for these.
+LOWER_IS_BETTER = (
+    "final_attack_success_rate",
+    "final_false_negative_rate",
+)
+
+
+def alternative_for(metric: str) -> str:
+    """The scipy `alternative` that makes the one-sided test read as
+    "method A performs BETTER than method B" on this metric."""
+    return "less" if metric in LOWER_IS_BETTER else "greater"
+
+
 def compare_methods_wilcoxon(
     results_a: List[Dict],
     results_b: List[Dict],
     metric: str = "final_accuracy",
     alpha: float = 0.05,
+    alternative: Optional[str] = None,
 ) -> Dict:
     """
-    Wilcoxon signed-rank test (non-parametric, paired).
+    Wilcoxon signed-rank test (non-parametric, paired), one-sided in the
+    direction "A performs better than B on this metric".
 
-    Use to compare TV-FLIDS vs each baseline across 5 seeds.
     H0: no difference in median performance.
-    If p < alpha: TV-FLIDS is significantly better.
+    If p < alpha: A is significantly better than B.
 
-    Returns dict with statistic, p_value, significant flag.
+    The direction is chosen from the metric unless `alternative` is given.
+    This matters: the test ran `alternative="greater"` for every metric, which
+    on attack-success rate -- where lower is better -- tests whether A is
+    WORSE than B. Reporting that p-value beside an "A is better" claim inverts
+    its meaning, so the ASR column of any generated table was reporting the
+    complement of the intended test.
+
+    Returns dict with statistic, p_value, significant flag and the alternative
+    actually used, so a reader of the artifact can see the direction tested.
     """
+    if alternative is None:
+        alternative = alternative_for(metric)
     vals_a = [r[metric] for r in results_a if metric in r]
     vals_b = [r[metric] for r in results_b if metric in r]
 
@@ -97,11 +122,14 @@ def compare_methods_wilcoxon(
         }
 
     try:
-        stat, p_val = wilcoxon(vals_a, vals_b, alternative="greater")
+        stat, p_val = wilcoxon(vals_a, vals_b, alternative=alternative)
         return {
             "statistic":        float(stat),
             "p_value":          float(p_val),
             "significant":      p_val < alpha,
+            "alternative":      alternative,
+            "metric":           metric,
+            "better_is":        "lower" if metric in LOWER_IS_BETTER else "higher",
             "mean_a":           float(np.mean(vals_a)),
             "mean_b":           float(np.mean(vals_b)),
             "effect_direction": "A > B" if np.mean(vals_a) > np.mean(vals_b) else "B > A",
@@ -188,6 +216,8 @@ def build_results_table_extended(
                 "cohens_d": d,
                 "wilcoxon_p": wtest.get("p_value", None),
                 "significant": wtest.get("significant", None),
+                "wilcoxon_alternative": wtest.get("alternative", None),
+                "better_is": wtest.get("better_is", None),
                 "formatted": (
                     f"{mean:.4f}±{std:.4f} [{ci_low:.4f},{ci_hi:.4f}] d={d:.2f}"
                 ),

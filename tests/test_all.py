@@ -427,6 +427,38 @@ class TestStatisticalTesting(unittest.TestCase):
         self.assertIn('p_value', res)
         self.assertIn('significant', res)
 
+    def test_wilcoxon_direction_follows_the_metric(self):
+        """A one-sided "A is better than B" test must run in the direction the
+        metric defines. On attack-success rate lower is better, so testing
+        `greater` there measures whether A is WORSE -- the complement of the
+        intended claim."""
+        from evaluation.statistical_testing import (
+            compare_methods_wilcoxon, alternative_for,
+        )
+        # A is better on both: higher accuracy, lower ASR.
+        a = [{"final_accuracy": 0.90 + i * 0.001,
+              "final_attack_success_rate": 0.10 + i * 0.001} for i in range(8)]
+        b = [{"final_accuracy": 0.85 + i * 0.001,
+              "final_attack_success_rate": 0.20 + i * 0.001} for i in range(8)]
+
+        self.assertEqual(alternative_for("final_accuracy"), "greater")
+        self.assertEqual(alternative_for("final_attack_success_rate"), "less")
+
+        for metric in ("final_accuracy", "final_attack_success_rate"):
+            res = compare_methods_wilcoxon(a, b, metric)
+            self.assertTrue(
+                res["significant"],
+                f"{metric}: A is better on this metric but the test did not "
+                f"detect it (alternative={res.get('alternative')}, "
+                f"p={res.get('p_value')})")
+            self.assertEqual(res["alternative"], alternative_for(metric))
+
+        # And the wrong direction must NOT be significant, which is what
+        # makes the choice of direction load-bearing rather than cosmetic.
+        wrong = compare_methods_wilcoxon(
+            a, b, "final_attack_success_rate", alternative="greater")
+        self.assertFalse(wrong["significant"])
+
     def test_compute_summary(self):
         from evaluation.statistical_testing import compute_summary
         data = [{'acc': 0.9}, {'acc': 0.92}, {'acc': 0.88}]
