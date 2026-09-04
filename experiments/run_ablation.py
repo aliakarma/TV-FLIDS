@@ -143,7 +143,15 @@ def run_ablation(
                 seed=seed,
                 num_rounds=num_rounds,
                 config_path=tmp_config_path,
-                log_dir=f"results/logs/ablation_{ablation_name.replace(' ', '_')}_{seed}",
+                # The colon is stripped as well as the space: ':' is a legal
+                # POSIX filename character but illegal on Windows and unsafe in
+                # Google Drive, so "A1: No Verification" would produce a log
+                # directory that cannot be created, synced or archived off
+                # Linux. This matches the sanitisation the temp config path
+                # above already applies to the same arm name.
+                log_dir=(f"results/logs/ablation_"
+                         f"{ablation_name.replace(' ', '_').replace(':', '')}"
+                         f"_{seed}"),
                 verbose=False,
             )
             seed_results.append(result)

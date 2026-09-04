@@ -1,0 +1,76 @@
+# colab/config_colab.yaml — orchestration settings for the Colab campaign.
+#
+# This file configures the RUNNER, not the science. Every scientific value
+# (client count, learning rate, trust parameters, verification thresholds,
+# validation size, round count) stays in config/fl_config.yaml and
+# config/dataset_config.yaml, which the campaign snapshots verbatim next to
+# every job so a result can always be traced to the bytes that produced it.
+#
+# Nothing here is an expected result.
+
+repository:
+  # Prefer cloning over uploading: a clone records a commit, an upload does not.
+  url: https://github.com/aliakarma/TV-FLIDS.git
+  branch: main
+  # Pin the exact commit the campaign runs. Leave null to use branch HEAD, but
+  # a real campaign should pin: a result whose code is "whatever main was that
+  # afternoon" is not reproducible.
+  commit: null
+  clone_path: /content/TV-FLIDS
+
+persistence:
+  # When Drive is mounted, this is the real home of every artifact and
+  # <clone_path>/results becomes a symlink to <drive_root>/campaign_results.
+  # The runners write "results/logs/..." unchanged; the bytes land on Drive.
+  mount_drive: true
+  drive_root: /content/drive/MyDrive/TV-FLIDS-Campaign
+  # Directory name under drive_root that mirrors expected_results/ exactly.
+  campaign_dir: campaign_results
+  # Without Drive, fall back to session-local storage. This is LOST when the
+  # session ends; the notebook says so loudly rather than pretending otherwise.
+  fallback_root: /content/campaign_results
+
+execution:
+  # Set from colab/benchmark_concurrency.py, not from assumption. Start at 1.
+  max_parallel_jobs: 1
+  # Ray resources per simulated client, passed through as
+  # TVFLIDS_SIM_CLIENT_CPUS / TVFLIDS_SIM_CLIENT_GPUS.
+  #   client_gpus: 0.0  -> clients run on CPU
+  #   client_gpus: 0.1  -> up to 10 concurrent client actors share the one T4
+  # A T4 has 16 GB; the model here is small, so the practical ceiling is set by
+  # per-actor CUDA context overhead (~300 MB each), not by model size.
+  sim_client_cpus: 1
+  sim_client_gpus: 0.1
+  # Retries per unit before it is left failed for inspection.
+  max_attempts: 2
+  # Never write TensorBoard event files during a campaign: on a network-mounted
+  # results root the per-round flush dominated the round time.
+  tensorboard: false
+  # Always on for a campaign: a completed cell is reused, never recomputed.
+  resume: true
+
+priority:
+  # Execution order. If the session dies early, the highest-priority scientific
+  # artifacts are the ones most likely to already exist.
+  #
+  # 1 - main paper        Table V, Figures 2-4, VII, VIII, IX-X, XI, Figure 5
+  # 2 - main supporting   Table VI, Section VIII-B, Table XII (derived)
+  # 3 - supplementary     S1, S2, S3, (S4 blocked: dataset absent)
+  run: [1, 2, 3]
+
+validation:
+  # Fail the campaign on warnings as well as errors.
+  strict: false
+  # Scan a sample of rounds per cell rather than all 101. Much faster over 580
+  # cells; use the full scan for the final pre-submission check.
+  sample_rounds: false
+
+smoke_test:
+  rounds: 3
+  clients: 6
+  seed: 42
+  attack: label_flip_30
+
+benchmark:
+  rounds_per_job: 5
+  modes: [1, 2]

@@ -61,3 +61,11 @@ runs/
 # Campaign scratch: per-phase stdout, benchmark probes, shell shims. The
 # scientific record is results/logs, results/tables and results/_campaign.
 results/_campaign_logs/
+
+# Colab campaign output. campaign_results/ is the live campaign tree (usually a
+# Drive-backed directory that <repo>/results symlinks to); expected_results/ is
+# generated from colab/campaign_inventory.py and IS tracked, because it is the
+# structure contract the campaign is validated against.
+campaign_results/
+results/_campaign/colab/
+colab/__pycache__/
