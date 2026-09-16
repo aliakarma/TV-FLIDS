@@ -774,12 +774,25 @@ def run_experiment(
     sim_num_cpus = int(os.getenv("TVFLIDS_SIM_CLIENT_CPUS", "12"))
     sim_num_gpus = float(os.getenv("TVFLIDS_SIM_CLIENT_GPUS", "0.0"))
 
+    # Use Ray local mode on Windows to avoid DLL-loading errors when
+    # Ray spawns child processes that import heavy binaries (e.g., torch).
+    # Local mode runs tasks in-process which is suitable for unit tests.
+    import platform
+    ray_init_args = None
+    if platform.system() == "Windows":
+        ray_init_args = {
+            "local_mode": True,
+            "ignore_reinit_error": True,
+            "include_dashboard": False,
+        }
+
     history = fl.simulation.start_simulation(
         client_fn=client_fn,
         num_clients=num_clients,
         config=fl.server.ServerConfig(num_rounds=n_rounds),
         strategy=strategy,
         client_resources={"num_cpus": sim_num_cpus, "num_gpus": sim_num_gpus},
+        ray_init_args=ray_init_args,
     )
 
     # ── Persist final predictions for confusion matrices ─────────────

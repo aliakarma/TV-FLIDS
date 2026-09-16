@@ -12,7 +12,6 @@ Key mechanism:
 Required: server_root_loader — clean, class-stratified, 1-5% of total data.
 """
 
-import copy
 import numpy as np
 import torch
 import torch.nn as nn
