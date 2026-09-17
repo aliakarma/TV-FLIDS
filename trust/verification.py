@@ -1,7 +1,6 @@
 """
-trust/verification.py — Three-criteria pre-aggregation verification gate.
-Checks: (1) loss consistency, (2) cosine similarity, (3) z-score norm outlier.
-Reference: Guide §8
+trust/verification.py — Stage 1 (Median Norm Clipping) & Stage 2 (Single Validation Gate).
+Reference: Paper §IV, Eq. (3)–(4), Algorithm 1.
 """
 
 import numpy as np
@@ -12,10 +11,60 @@ import hashlib
 import pickle
 
 
+def clip_updates(updates: List[List[np.ndarray]],
+                 cohort_norms: Optional[List[float]] = None
+                 ) -> Tuple[List[List[np.ndarray]], float, List[float]]:
+    """Stage 1: Median-radius norm clipping (Paper §IV, Eq. (3)).
+
+    C^{(t)} = median_{j in P} ||Delta_j^{(t)}||
+    tilde{Delta}_i^{(t)} = Delta_i^{(t)} * min(1, C^{(t)} / ||Delta_i^{(t)}||)
+
+    The median is computed over the FULL sampled participant cohort P.
+    Handles zero-norm updates safely without division-by-zero.
+    Updates below or on the median radius remain unchanged.
+    Updates above the median radius are scaled onto the median-radius boundary.
+
+    Returns:
+        (clipped_updates, clipping_radius C, raw_norms)
+    """
+    n = len(updates)
+    if n == 0:
+        return [], 0.0, []
+
+    if cohort_norms is None:
+        raw_norms = [
+            float(np.linalg.norm(np.concatenate([x.flatten() for x in u])))
+            for u in updates
+        ]
+    else:
+        raw_norms = [float(val) for val in cohort_norms]
+
+    # Median over the full sampled participant cohort P
+    # For D values, mean of order statistics of ranks ceil(D/2) and floor(D/2)+1
+    c_radius = float(np.median(raw_norms))
+
+    clipped_updates = []
+    for idx, upd in enumerate(updates):
+        norm_i = raw_norms[idx]
+        if norm_i == 0.0 or norm_i <= c_radius:
+            # Below or equal to median (or zero): unchanged
+            clipped_updates.append([p.copy() for p in upd])
+        else:
+            # Scaled exactly onto the median-radius boundary
+            scale = c_radius / norm_i
+            clipped_updates.append([p * scale for p in upd])
+
+    return clipped_updates, c_radius, raw_norms
+
+
 class VerificationModule:
     """
-    Pre-aggregation gate: Rejected → excluded; Flagged → reduced trust; Verified → normal.
+    TV-FLIDS Pre-aggregation module:
+    Stage 1: Median-radius norm clipping
+    Stage 2: Single validation-loss improvement gate (Paper §IV, Eq. (4))
     """
+    clip_updates = staticmethod(clip_updates)
+
     def __init__(self, loss_threshold: float = 0.0, cosine_threshold: float = 0.0,
                  zscore_threshold: float = 2.5):
         self.loss_threshold = loss_threshold
@@ -23,67 +72,113 @@ class VerificationModule:
         self.zscore_threshold = zscore_threshold
         self.verification_log: List[Dict] = []
 
-    def verify_all(self, client_updates: List[List[np.ndarray]], client_ids: List[int],
-                   global_loss: float, global_params: List[np.ndarray],
-                   model: nn.Module, device: torch.device,
-                   val_loader: torch.utils.data.DataLoader,
-                   eval_cache: Optional[Dict[str, float]] = None) -> Dict:
-        """Run all 3 checks on each client update. Returns verified/flagged/rejected dicts."""
-        n = len(client_updates)
+    def evaluate_validation_gate(
+        self,
+        clipped_updates: List[List[np.ndarray]],
+        client_ids: List[int],
+        global_loss: float,
+        global_params: List[np.ndarray],
+        model: nn.Module,
+        device: torch.device,
+        val_loader: torch.utils.data.DataLoader,
+        eval_cache: Optional[Dict[str, float]] = None,
+        loss_threshold: Optional[float] = None,
+    ) -> Dict:
+        """Stage 2: Single validation-loss gate (Paper §IV, Eq. (4)).
+
+        delta_i = l_val(w^{(t)}) - l_val(tilde{w}_i^{(t)}) >= tau_L(t)
+
+        Evaluates candidate models constructed from CLIPPED updates.
+        Rejection is based solely on delta_i < tau_L(t).
+        Direction (cosine) and norm (z-score) are not hard filters.
+        """
+        n = len(clipped_updates)
         if n == 0:
-            return {'verified': [], 'flagged': [], 'rejected': []}
+            return {
+                'accepted': [], 'rejected': [],
+                'verified': [], 'flagged': [],
+                'deltas': {}, 'val_losses': {},
+                'threshold': float(loss_threshold if loss_threshold is not None else self.loss_threshold),
+                'reasons': {},
+            }
 
-        pseudo = self._mean_update(client_updates)
-        norms = np.array([self._norm(u) for u in client_updates], dtype=np.float64)
-        mu, sigma = np.mean(norms), np.std(norms) + 1e-8
+        tau_l = self.loss_threshold if loss_threshold is None else float(loss_threshold)
 
-        results = {'verified': [], 'flagged': [], 'rejected': []}
+        accepted: List[Tuple[int, List[np.ndarray]]] = []
+        rejected: List[Tuple[int, List[np.ndarray]]] = []
+        deltas: Dict[int, float] = {}
+        val_losses: Dict[int, float] = {}
         reasons: Dict[int, str] = {}
 
-        for idx, (cid, upd) in enumerate(zip(client_ids, client_updates)):
-            flags = []
-
-            # CHECK 1: Loss consistency — does update improve server validation loss?
+        for idx, (cid, upd) in enumerate(zip(client_ids, clipped_updates)):
+            # Candidate model from clipped update: tilde{w}_i = w^{(t)} + tilde{Delta}_i
             tentative = [g + u for g, u in zip(global_params, upd)]
             loss_after = self._eval_params(model, tentative, val_loader, device, eval_cache=eval_cache)
-            delta = global_loss - loss_after   # positive = improvement
+            delta = float(global_loss - loss_after)
+            deltas[cid] = delta
+            val_losses[cid] = float(loss_after)
 
-            if delta < self.loss_threshold:
-                results['rejected'].append((cid, upd))
-                reasons[cid] = f'REJECTED: loss_degradation(ΔL={delta:.4f})'
-                continue
-
-            # CHECK 2: Cosine similarity with pseudo-gradient
-            cos = self._cosine(self._flatten(upd), self._flatten(pseudo))
-            if cos < self.cosine_threshold:
-                flags.append(f'direction_anomaly(cos={cos:.3f})')
-
-            # CHECK 3: Z-score norm outlier
-            z = abs((norms[idx] - mu) / sigma)
-            if z > self.zscore_threshold:
-                flags.append(f'norm_outlier(z={z:.3f})')
-
-            if flags:
-                results['flagged'].append((cid, upd))
-                reasons[cid] = 'FLAGGED: ' + ', '.join(flags)
+            if delta < tau_l:
+                rejected.append((cid, upd))
+                reasons[cid] = f'REJECTED: loss_degradation(ΔL={delta:.4f} < tau_L={tau_l:.4f})'
             else:
-                results['verified'].append((cid, upd))
-                reasons[cid] = 'VERIFIED'
+                accepted.append((cid, upd))
+                reasons[cid] = f'ACCEPTED: loss_improvement(ΔL={delta:.4f} >= tau_L={tau_l:.4f})'
+
+        result = {
+            'accepted': accepted,
+            'rejected': rejected,
+            'verified': accepted,   # backward compatibility alias
+            'flagged': [],          # no independent hard flags in single-gate
+            'deltas': deltas,
+            'val_losses': val_losses,
+            'threshold': float(tau_l),
+            'reasons': reasons,
+        }
 
         self.verification_log.append({
-            'num_verified': len(results['verified']),
-            'num_flagged':  len(results['flagged']),
-            'num_rejected': len(results['rejected']),
+            'num_accepted': len(accepted),
+            'num_verified': len(accepted),
+            'num_flagged': 0,
+            'num_rejected': len(rejected),
+            'loss_threshold': float(tau_l),
             'reasons': reasons,
         })
-        return results
+        return result
+
+    def verify_all(
+        self,
+        client_updates: List[List[np.ndarray]],
+        client_ids: List[int],
+        global_loss: float,
+        global_params: List[np.ndarray],
+        model: nn.Module,
+        device: torch.device,
+        val_loader: torch.utils.data.DataLoader,
+        eval_cache: Optional[Dict[str, float]] = None,
+        clip_first: bool = True,
+        loss_threshold: Optional[float] = None,
+    ) -> Dict:
+        """Backward-compatible verification entry point.
+
+        If clip_first is True (default), performs Stage 1 median norm clipping
+        before Stage 2 validation gate evaluation.
+        """
+        if clip_first:
+            clipped, _, _ = self.clip_updates(client_updates)
+        else:
+            clipped = client_updates
+
+        return self.evaluate_validation_gate(
+            clipped, client_ids, global_loss, global_params,
+            model, device, val_loader, eval_cache=eval_cache,
+            loss_threshold=loss_threshold,
+        )
 
     # ── Adaptive threshold helpers ────────────────────────────────────────
     # Both schedules implement the warmup annealing of paper Section IV-A
-    # ("Stage 1: Three-Criteria Verification Gate") and are driven by the
-    # SAME authoritative configuration knob, ``verification.warmup_rounds``
-    # (T_warm, default 20 per paper Table IV). Neither carries its own
-    # independent transition length.
+    # and are driven by the authoritative configuration knob,
+    # ``verification.warmup_rounds`` (T_warm, default 20 per paper Table IV).
 
     @staticmethod
     def adaptive_zscore_threshold(base: float, round_num: int,
@@ -92,19 +187,6 @@ class VerificationModule:
         """Check-3 threshold tau_z(t), paper Section IV-A (label eq:tau_anneal).
 
             tau_z(t) = base + warmup_offset * max(0, 1 - t / T_warm)
-
-        With the paper's defaults (base = tau_z = 2.5, warmup_offset = 0.5,
-        T_warm = 20) this evaluates to 3.0 at t = 0, decays *linearly* to the
-        nominal 2.5 at t = T_warm, and stays at 2.5 for every t > T_warm.
-
-        The annealing is ADDITIVE (an offset above the nominal threshold),
-        not multiplicative. A previous implementation multiplied ``base`` by
-        a scale factor that started at 3.0 (giving tau_z(0) = 7.5, three times
-        the intended leniency) and, worse, switched at t = T_warm to a second,
-        exponential branch that jumped the threshold back up to ~4.88 at
-        t = T_warm + 1 before decaying — a discontinuity the paper's schedule
-        does not have and which made the gate *more* permissive after warmup
-        than during it. See tests/test_warmup_schedule.py.
         """
         if warmup_rounds <= 0:
             return float(base)
@@ -114,15 +196,10 @@ class VerificationModule:
     def adaptive_loss_threshold(round_num: int, initial: float = -0.1,
                                  final: float = 0.0,
                                  warmup_rounds: int = 20) -> float:
-        """Check-1 threshold tau_L(t), paper Section IV-A.
+        """Check-1 threshold tau_L(t), paper Section IV-A, Eq. (4).
 
             tau_L(t) = initial + (final - initial) * min(1, t / T_warm)
-
-        Linearly annealed from ``initial`` (-0.1) to ``final`` (0.0) over the
-        first T_warm rounds, then held at ``final``. T_warm is the SAME
-        ``warmup_rounds`` that drives Eq. (5); the previous signature took an
-        independent ``transition`` argument that call sites hardcoded to 30,
-        contradicting both Table IV (T_warm = 20) and the tau_z schedule.
+            = -0.1 + 0.1 * min(1, t / 20)
         """
         if warmup_rounds <= 0:
             return float(final)
@@ -133,7 +210,6 @@ class VerificationModule:
     def _eval_params(self, model: nn.Module, params: List[np.ndarray],
                      val_loader, device: torch.device,
                      eval_cache: Optional[Dict[str, float]] = None) -> float:
-        # Try to compute a deterministic key for these params and consult cache
         try:
             key = hashlib.sha256(pickle.dumps(params)).hexdigest()
         except Exception:
@@ -160,6 +236,8 @@ class VerificationModule:
         return loss
 
     def _mean_update(self, updates: List[List[np.ndarray]]) -> List[np.ndarray]:
+        if not updates:
+            return []
         return [np.mean([u[i] for u in updates], axis=0) for i in range(len(updates[0]))]
 
     def _flatten(self, p: List[np.ndarray]) -> np.ndarray:
@@ -174,3 +252,4 @@ class VerificationModule:
 
     def get_round_summary(self) -> Optional[Dict]:
         return self.verification_log[-1] if self.verification_log else None
+

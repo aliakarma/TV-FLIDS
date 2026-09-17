@@ -170,14 +170,13 @@ class TVFLIDSStrategy(FedAvg):
                 shift_scale=self.attack_kwargs.get("shift_scale", 1.0),
             )
 
-        # Δw_i = w_i^trained − w_global
-        updates = [[c - g for c, g in zip(cp, global_params)] for cp in client_params]
+        # Δw_i = w_i^trained − w_global (raw client updates)
+        raw_updates = [[c - g for c, g in zip(cp, global_params)] for cp in client_params]
 
         _client_timer.__exit__(None, None, None)
 
-        # Warmup threshold annealing (paper Section IV-A). Both schedules are
-        # driven by the SAME T_warm = self.warmup_rounds; neither carries an
-        # independent transition length.
+        # Warmup threshold annealing (paper Section IV-A, Eq. (4)). Driven by
+        # T_warm = self.warmup_rounds.
         if self.use_adaptive_thresholds:
             self.verifier.zscore_threshold = VerificationModule.adaptive_zscore_threshold(
                 self._nominal_zscore_threshold, server_round,
@@ -189,15 +188,19 @@ class TVFLIDSStrategy(FedAvg):
                 final=self._nominal_loss_threshold,
                 warmup_rounds=self.warmup_rounds)
 
-        # ── STEP 1: Verify ────────────────────────────────────────────
+        # ── STAGE 1: Median-Radius Norm Clipping (Paper §IV, Eq. (3)) ──
+        clipped_updates, clipping_radius, raw_norms = self.verifier.clip_updates(raw_updates)
+
+        # ── STAGE 2: Single Validation-Loss Gate (Paper §IV, Eq. (4)) ──
         global_loss = self._eval_model(global_params)
         with _ohead.time_phase("verification"):
-            vr = self.verifier.verify_all(
-                updates, client_ids, global_loss, global_params,
+            vr = self.verifier.evaluate_validation_gate(
+                clipped_updates, client_ids, global_loss, global_params,
                 self.model, self.device, self.val_loader,
-                eval_cache=self._eval_cache)
+                eval_cache=self._eval_cache,
+                loss_threshold=self.verifier.loss_threshold)
 
-        active = vr['verified'] + vr['flagged']
+        active = vr['accepted']
         if not active:
             _round_timer.__exit__(None, None, None)
             # Same key schema as the normal path (minus the trust summary, which
@@ -205,8 +208,9 @@ class TVFLIDSStrategy(FedAvg):
             # round logs does not have to special-case this branch.
             log = {'round': server_round, 'all_rejected': 1,
                    'global_loss': float(global_loss),
-                   'num_verified': 0, 'num_flagged': 0,
+                   'num_accepted': 0, 'num_verified': 0, 'num_flagged': 0,
                    'num_rejected': len(vr['rejected']),
+                   'clipping_radius': float(clipping_radius),
                    'tau_z': float(self.verifier.zscore_threshold),
                    'tau_L': float(self.verifier.loss_threshold)}
             if self.track_overhead:
@@ -218,7 +222,7 @@ class TVFLIDSStrategy(FedAvg):
             return ndarrays_to_parameters(global_params), log
 
         a_ids  = [cid for cid, _ in active]
-        a_upds = [upd for _, upd in active]
+        a_upds = [upd for _, upd in active]  # CLIPPED updates
         a_pars = [[g + u for g, u in zip(global_params, upd)] for upd in a_upds]
 
         if self.config.get("log_client_params", False):
@@ -237,11 +241,11 @@ class TVFLIDSStrategy(FedAvg):
             sim  = self.trust_scorer.compute_similarity_scores(a_upds, mean_upd)
             client_val_losses = [self._eval_model(p) for p in a_pars]  # compute ONCE (cached)
             acc  = self.trust_scorer.compute_accuracy_scores(global_loss, client_val_losses)
-            # eq:anom, O_i = 1 - exp(-z_i / tau_z), must use the CURRENT tau_z,
-            # which the warmup schedule of eq:tau_anneal may have annealed this
-            # round.
+            # eq:anom, O_i = 1 - exp(-z_i / tau_z), reads unclipped norms because
+            # clipping equalizes the largest half of them (Paper §IV line 186).
+            a_raw_upds = [raw_updates[client_ids.index(cid)] for cid in a_ids]
             anom = self.trust_scorer.compute_anomaly_scores(
-                a_upds, tau_z=self.verifier.zscore_threshold)
+                a_raw_upds, tau_z=self.verifier.zscore_threshold)
 
             # STEP 3: Update trust (meta-gradient step follows below)
             self.trust_scorer.update_trust(a_ids, sim, acc, anom)
@@ -296,8 +300,10 @@ class TVFLIDSStrategy(FedAvg):
         ts = self.trust_scorer.get_summary()
         log = {
             'round': server_round, 'global_loss': float(global_loss),
+            'num_accepted': len(vr['accepted']),
             'num_verified': len(vr['verified']), 'num_flagged': len(vr['flagged']),
             'num_rejected': len(vr['rejected']), 'all_rejected': 0,
+            'clipping_radius': float(clipping_radius),
             'tau_z': float(self.verifier.zscore_threshold),
             'tau_L': float(self.verifier.loss_threshold),
             **{f'trust_{k}': float(v) for k, v in ts.items()},

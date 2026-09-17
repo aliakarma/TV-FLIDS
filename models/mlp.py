@@ -14,7 +14,8 @@ from typing import List
 class IDSMLP(nn.Module):
     """
     MLP for network intrusion detection.
-    Input → 256 → 128 → 64 → num_classes (with BN + Dropout).
+    Paper §VI-B: d → 256 → 128 → 64 → K with LayerNorm, ReLU, and Dropout 0.3
+    after each hidden layer. Closed-form parameters: P(d, K) = 256*d + 65*K + 42,304.
     """
     def __init__(self, input_dim: int = 41, num_classes: int = 5, dropout: float = 0.3):
         super().__init__()
@@ -22,15 +23,15 @@ class IDSMLP(nn.Module):
         self.num_classes = num_classes
         self.network = nn.Sequential(
             nn.Linear(input_dim, 256),
-            nn.BatchNorm1d(256),
+            nn.LayerNorm(256),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(256, 128),
-            nn.BatchNorm1d(128),
+            nn.LayerNorm(128),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(128, 64),
-            nn.BatchNorm1d(64),
+            nn.LayerNorm(64),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(64, num_classes),
@@ -42,9 +43,14 @@ class IDSMLP(nn.Module):
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm1d):
+            elif isinstance(m, nn.LayerNorm):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
+    @staticmethod
+    def parameter_count_formula(d: int, K: int) -> int:
+        """Paper §VI-B closed-form parameter count: P(d, K) = 256*d + 65*K + 42,304."""
+        return 256 * d + 65 * K + 42304
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)

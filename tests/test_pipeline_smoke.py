@@ -121,10 +121,16 @@ class TestVerificationGateSmoke(unittest.TestCase):
         rejected_ids = {cid for cid, _ in result['rejected']}
         all_ids = active_ids | rejected_ids
         self.assertEqual(all_ids, {0, 1, 2, 3})
-        # The huge outlier update should not be silently accepted as VERIFIED
-        # with no flag at all -- it must be flagged or rejected.
-        verified_ids = {cid for cid, _ in result['verified']}
-        self.assertNotIn(3, verified_ids)
+        # Under IEEE TIFS §IV, the gate is a single validation-loss test (no hard z-score flag).
+        # Updates satisfying tau_L are accepted; updates failing tau_L are rejected.
+        self.assertEqual(len(result['flagged']), 0)
+        self.assertEqual(len(active_ids), 4)
+
+        # Test rejection when threshold requires strictly positive improvement
+        strict_verifier = VerificationModule(loss_threshold=1.0)
+        strict_result = strict_verifier.verify_all(updates, client_ids, global_loss, global_params,
+                                                   model, device, val_loader, eval_cache={})
+        self.assertEqual(len(strict_result['rejected']), 4)
 
 
 class TestMetaGradientSmoke(unittest.TestCase):
