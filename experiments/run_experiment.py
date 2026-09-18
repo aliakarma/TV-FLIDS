@@ -45,13 +45,18 @@ from fl.client import TVFLIDSClient
 from fl.strategy import TVFLIDSStrategy
 from fl.baselines.fedavg_strategy import FedAvgStrategy
 from fl.baselines.krum_strategy import KrumStrategy
+from fl.baselines.multikrum_strategy import MultiKrumStrategy
 from fl.baselines.trimmed_mean_strategy import TrimmedMeanStrategy
-from fl.baselines.fltrust_strategy import FLTrustStrategy
-from fl.baselines.foolsgold_strategy import FoolsGoldStrategy
-from fl.baselines.flame_strategy import FLAMEStrategy
+from fl.baselines.norm_clipping_strategy import NormClippingStrategy
 from fl.baselines.rfa_strategy import RFAStrategy
 from fl.baselines.bucketing_strategy import BucketingStrategy
+from fl.baselines.foolsgold_strategy import FoolsGoldStrategy
+from fl.baselines.flame_strategy import FLAMEStrategy
 from fl.baselines.deepsight_strategy import DeepSightStrategy
+from fl.baselines.fldetector_strategy import FLDetectorStrategy
+from fl.baselines.zeno_strategy import ZenoStrategy
+from fl.baselines.fltrust_strategy import FLTrustStrategy
+from fl.baselines.baffle_strategy import BaFFLeStrategy
 from attacks.adversarial import ATTACK_CONFIGS, get_malicious_client_ids
 from evaluation.metrics import ExperimentMetrics
 from evaluation.overhead import OverheadTracker, estimate_communication_cost
@@ -171,6 +176,7 @@ def make_client_fn(
     attack_type: Optional[str],
     attack_kwargs: dict,
     model_kwargs: dict,
+    proxy_val_data: Optional[Tuple[np.ndarray, np.ndarray]] = None,
 ):
     """Return a Flower client factory function."""
 
@@ -219,6 +225,7 @@ def make_client_fn(
             is_malicious=is_malicious,
             attack_type=attack_type if is_malicious else None,
             attack_kwargs=attack_kwargs,
+            proxy_val_data=proxy_val_data if is_malicious else None,
         )
 
     return client_fn
@@ -309,6 +316,18 @@ def make_strategy(
         return KrumStrategy(
             num_clients=num_clients,
             num_byzantine=override.get("num_byzantine", n_byzantine),
+            m=override.get("m", 1),
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            **common_kwargs,
+        )
+
+    elif strategy_name in ("multikrum", "multi_krum"):
+        return MultiKrumStrategy(
+            num_clients=num_clients,
+            num_byzantine=override.get("num_byzantine", n_byzantine),
             m=override.get("m", None),
             global_model=global_model,
             attack_type=attack_type,
@@ -328,6 +347,18 @@ def make_strategy(
             **common_kwargs,
         )
 
+    elif strategy_name == "norm_clipping":
+        return NormClippingStrategy(
+            clip_factor=override.get("clip_factor", 1.0),
+            clip_radius=override.get("clip_radius", None),
+            weighted=override.get("weighted", False),
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            **common_kwargs,
+        )
+
     elif strategy_name == "fltrust":
         if root_loader is None:
             raise ValueError("FLTrust requires a root_loader. Pass --strategy fltrust.")
@@ -335,8 +366,8 @@ def make_strategy(
             server_model=global_model,
             server_root_loader=root_loader,
             device=device,
-            local_epochs=1,
-            lr=fl_cfg.get("local_lr", 0.001),
+            local_epochs=override.get("local_epochs", 1),
+            lr=override.get("lr", fl_cfg.get("local_lr", 0.001)),
             attack_type=attack_type,
             attack_kwargs=attack_kwargs,
             malicious_ids=malicious_ids,
@@ -375,8 +406,8 @@ def make_strategy(
 
     elif strategy_name == "bucketing":
         return BucketingStrategy(
-            bucket_size=2,
-            beta=min(0.35, adv_ratio + 0.05),
+            bucket_size=override.get("bucket_size", 2),
+            beta=override.get("beta", min(0.35, adv_ratio + 0.05)),
             global_model=global_model,
             attack_type=attack_type,
             attack_kwargs=attack_kwargs,
@@ -387,6 +418,51 @@ def make_strategy(
 
     elif strategy_name == "deepsight":
         return DeepSightStrategy(
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            seed=seed,
+            **common_kwargs,
+        )
+
+    elif strategy_name == "fldetector":
+        return FLDetectorStrategy(
+            window=override.get("window", 10),
+            start_round=override.get("start_round", 10),
+            beta=override.get("beta", 0.1),
+            num_clients=num_clients,
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            **common_kwargs,
+        )
+
+    elif strategy_name == "zeno":
+        return ZenoStrategy(
+            server_model=global_model,
+            val_loader=val_loader,
+            device=device,
+            rho=override.get("rho", 0.001),
+            b=override.get("b", 3),
+            eta=override.get("eta", 1.0),
+            global_model=global_model,
+            attack_type=attack_type,
+            attack_kwargs=attack_kwargs,
+            malicious_ids=malicious_ids,
+            **common_kwargs,
+        )
+
+    elif strategy_name == "baffle":
+        return BaFFLeStrategy(
+            num_clients=num_clients,
+            num_validators=override.get("num_validators", 5),
+            quorum=override.get("quorum", 0.3),
+            lookback=override.get("lookback", 10),
+            error_threshold=override.get("error_threshold", 0.05),
+            val_loader=val_loader,
+            device=device,
             global_model=global_model,
             attack_type=attack_type,
             attack_kwargs=attack_kwargs,
@@ -418,8 +494,9 @@ def make_strategy(
 
     else:
         raise ValueError(f"Unknown strategy: {strategy_name}. "
-                         "Choose: fedavg, krum, trimmed_mean, fltrust, "
-                         "foolsgold, flame, rfa, bucketing, deepsight, "
+                         "Choose: fedavg, krum, multikrum, trimmed_mean, "
+                         "norm_clipping, fltrust, foolsgold, flame, rfa, "
+                         "bucketing, deepsight, fldetector, zeno, baffle, "
                          "tvflids, tvflids_fixed")
 
 
@@ -530,6 +607,9 @@ def run_experiment(
     val_size: int = 2000,
     protocol: str = "main",
     strategy_kwargs_override: Optional[dict] = None,
+    attack_variant: Optional[str] = None,
+    knowledge_tier: Optional[str] = None,
+    on_off_k: Optional[int] = None,
 ) -> Dict:
     """
     Run a complete FL experiment end-to-end.
@@ -553,6 +633,9 @@ def run_experiment(
             krum, {"beta": 0.1} for trimmed_mean). Used by
             experiments/run_hyperparameter_sweep.py (audit IDs E10/E11) to
             sweep baseline hyperparameters. None preserves prior behavior.
+        attack_variant:     Override attack variant (e.g. 'partial', 'full').
+        knowledge_tier:     Override attack knowledge tier (e.g. 'K1', 'K2').
+        on_off_k:           Override on-off attack round frequency / parameter k.
 
     Returns:
         Dict with final metrics summary.
@@ -582,16 +665,20 @@ def run_experiment(
 
     attack_type = atk_cfg.get("type")
     attack_kwargs = {
-        "scale_factor":  atk_cfg.get("factor", 10.0),
-        "noise_std":     atk_cfg.get("std", 0.5),
-        "poison_ratio":  atk_cfg.get("poison_ratio", 0.1),
-        "flip_ratio":    1.0,
-        "target_class":  0,
-        "gamma":         atk_cfg.get("gamma", 2.0),
-        # ACK1 ("Check-1 evasion"): auxiliary-loss proxy-D_val training.
+        "scale_factor":    atk_cfg.get("factor", 10.0),
+        "noise_std":       atk_cfg.get("std", 0.5),
+        "poison_ratio":    atk_cfg.get("poison_ratio", 0.1),
+        "flip_ratio":      atk_cfg.get("flip_ratio", 1.0),
+        "target_class":    atk_cfg.get("target_class", 0),
+        "gamma":           atk_cfg.get("gamma", 2.0),
+        "variant":         attack_variant or atk_cfg.get("variant", "partial"),
+        "knowledge_tier":  knowledge_tier or atk_cfg.get("knowledge_tier", "K1"),
+        "k":               on_off_k or atk_cfg.get("k", 30),
+        "psi":             atk_cfg.get("psi", 0.85),
+        "rho_a":           atk_cfg.get("rho_a", 1.0),
+        "m":               atk_cfg.get("m", 0.0),
         "proxy_val_ratio": atk_cfg.get("proxy_val_ratio", 0.15),
         "aux_loss_weight": atk_cfg.get("aux_loss_weight", 0.5),
-        # ACK2 ("Check-2 coalition evasion"): coalition shift magnitude.
         "poison_strength": atk_cfg.get("poison_strength", 1.0),
         "shift_scale":     atk_cfg.get("shift_scale", 1.0),
     }
@@ -764,15 +851,49 @@ def run_experiment(
     )
     strategy_container.strategy = strategy
 
+    # ── Proxy validation data for adaptive attacks ────────────────────
+    proxy_val_data = None
+    if attack_type in ("ack1", "ack1_evasion", "ack2", "ack3", "ack3_evasion", "ack4"):
+        from attacks.knowledge import ValidationEstimateProvider
+        ktier = attack_kwargs.get("knowledge_tier", "K1")
+        try:
+            if ktier == "K0":
+                coalition_data = [client_data[cid] for cid in malicious_ids]
+                proxy_val_data = ValidationEstimateProvider.get_validation_estimate(
+                    tier="K0", coalition_data=coalition_data, seed=seed
+                )
+            elif ktier == "K1":
+                X_bg = np.concatenate([X for X, _ in client_data], axis=0)
+                y_bg = np.concatenate([y for _, y in client_data], axis=0)
+                proxy_val_data = ValidationEstimateProvider.get_validation_estimate(
+                    tier="K1", background_data=(X_bg, y_bg), seed=seed
+                )
+            elif ktier == "K2":
+                proxy_val_data = ValidationEstimateProvider.get_validation_estimate(
+                    tier="K2", server_val_data=(X_val, y_val), seed=seed
+                )
+        except Exception as e:
+            print(f"[Warning] Failed to construct knowledge-tier {ktier} validation estimate: {e}")
+
     # ── Client factory ────────────────────────────────────────────────
     client_fn = make_client_fn(
         client_data, X_val, y_val, config, device,
         class_weights, malicious_ids, attack_type, attack_kwargs, model_kwargs,
+        proxy_val_data=proxy_val_data,
     )
 
     # ── Flower simulation ─────────────────────────────────────────────
-    sim_num_cpus = int(os.getenv("TVFLIDS_SIM_CLIENT_CPUS", "12"))
+    sim_num_cpus = int(os.getenv("TVFLIDS_SIM_CLIENT_CPUS", "1"))
     sim_num_gpus = float(os.getenv("TVFLIDS_SIM_CLIENT_GPUS", "0.0"))
+
+    ray_init_args = None
+    local_mode_env = os.getenv("TVFLIDS_SIM_LOCAL_MODE", "")
+    if local_mode_env == "1" or (local_mode_env != "0" and sys.platform == "win32"):
+        ray_init_args = {
+            "local_mode": True,
+            "include_dashboard": False,
+            "ignore_reinit_error": True,
+        }
 
     history = fl.simulation.start_simulation(
         client_fn=client_fn,
@@ -780,6 +901,7 @@ def run_experiment(
         config=fl.server.ServerConfig(num_rounds=n_rounds),
         strategy=strategy,
         client_resources={"num_cpus": sim_num_cpus, "num_gpus": sim_num_gpus},
+        ray_init_args=ray_init_args,
     )
 
     # ── Persist final predictions for confusion matrices ─────────────
@@ -952,9 +1074,10 @@ Examples:
         """
     )
     parser.add_argument("--strategy",   type=str, default="tvflids",
-                        choices=["fedavg", "krum", "trimmed_mean", "fltrust",
-                                 "foolsgold", "flame", "rfa", "bucketing", "deepsight",
-                                 "tvflids", "tvflids_fixed"],
+                        choices=["fedavg", "krum", "multikrum", "multi_krum", "trimmed_mean",
+                                 "norm_clipping", "fltrust", "foolsgold", "flame", "rfa",
+                                 "bucketing", "deepsight", "fldetector", "zeno", "baffle",
+                                 "tvflids", "tvflids_adaptive", "tvflids_fixed"],
                         help="Aggregation strategy")
     parser.add_argument("--attack",     type=str, default="label_flip_30",
                         choices=list(ATTACK_CONFIGS.keys()),
@@ -988,6 +1111,15 @@ Examples:
     parser.add_argument("--model",      type=str, default="mlp",
                         choices=["mlp", "bilstm"],
                         help="Model architecture (default: mlp)")
+    parser.add_argument("--knowledge-tier", type=str, default=None,
+                        choices=["K0", "K1", "K2"],
+                        help="Adversary knowledge tier for adaptive attacks")
+    parser.add_argument("--attack-variant", type=str, default=None,
+                        choices=["partial", "omniscient"],
+                        help="Attack variant for Min-Max / Min-Sum")
+    parser.add_argument("--on-off-k",   type=int, default=None,
+                        choices=[10, 20, 30, 50],
+                        help="Honest phase length for on-off attacks")
 
     args = parser.parse_args()
 
@@ -1005,6 +1137,9 @@ Examples:
         model_type=args.model,
         val_size=args.val_size,
         protocol=args.protocol,
+        attack_variant=args.attack_variant,
+        knowledge_tier=args.knowledge_tier,
+        on_off_k=args.on_off_k,
     )
 
     print("\n[Done] Final results:")

@@ -41,7 +41,8 @@ import sys
 from typing import List, Tuple
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAPER_DIR = os.path.join(ROOT, "Paper")
+_default_paper = os.path.join(ROOT, "Paper", "IEEE")
+PAPER_DIR = _default_paper if os.path.isdir(_default_paper) else os.path.join(ROOT, "Paper")
 DOCUMENTS = ["TV-FLIDS", "TV-FLIDS_supplementary"]
 
 # Commands whose leading backslash going missing is silent rather than fatal:

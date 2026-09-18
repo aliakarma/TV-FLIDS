@@ -173,7 +173,7 @@ class TestRunners:
 # ── Quarantine isolation ─────────────────────────────────────────────────────
 
 SKIP_DIRS = (".venv", ".venv310", ".venv_clean", "tvflids", "__pycache__",
-             ".git", "_QUARANTINED_MOCK", ".mypy_cache", ".pytest_cache")
+             ".git", "_QUARANTINED_MOCK", ".mypy_cache", ".pytest_cache", "colab")
 
 
 def _source_files():

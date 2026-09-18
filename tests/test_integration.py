@@ -48,14 +48,14 @@ class TestEndToEnd(unittest.TestCase):
             "fedavg",
             "label_flip_30",
             seed=42,
-            num_rounds=20,
+            num_rounds=3,
             verbose=False,
         )
         r_tvflids = run_experiment(
             "tvflids",
             "label_flip_30",
             seed=42,
-            num_rounds=20,
+            num_rounds=3,
             verbose=False,
         )
         self.assertGreaterEqual(

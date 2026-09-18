@@ -1,27 +1,40 @@
 """
-fl/client.py — Flower FL client with optional adversarial attack injection.
-Reference: Guide §6.2
+fl/client.py — Flower FL client with adversarial attack injection.
+Reference: IEEE TIFS Manuscript §III, §VII, and Supplementary §S4.
 """
 
 from time import perf_counter as _perf_counter
-
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
-from typing import Dict, List, Optional, Tuple
 import flwr as fl
 from flwr.common import NDArrays, Scalar
+
 from attacks.adversarial import AdversarialAttackFactory
+from attacks.knowledge import KnowledgeTier, ValidationEstimateProvider, NSLKDD_VAL_QUOTAS
+from trust.verification import compute_class_balanced_loss_from_tensors
 
 
 class TVFLIDSClient(fl.client.NumPyClient):
-    def __init__(self, client_id: int, X_train: np.ndarray, y_train: np.ndarray,
-                 X_val: np.ndarray, y_val: np.ndarray, device: torch.device,
-                 config: dict, class_weights: Optional[np.ndarray] = None,
-                 model_class=None, model_kwargs: Optional[dict] = None,
-                 is_malicious: bool = False, attack_type: Optional[str] = None,
-                 attack_kwargs: Optional[dict] = None):
+    def __init__(
+        self,
+        client_id: int,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: np.ndarray,
+        y_val: np.ndarray,
+        device: torch.device,
+        config: dict,
+        class_weights: Optional[np.ndarray] = None,
+        model_class=None,
+        model_kwargs: Optional[dict] = None,
+        is_malicious: bool = False,
+        attack_type: Optional[str] = None,
+        attack_kwargs: Optional[dict] = None,
+        proxy_val_data: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+    ):
         self.client_id = client_id
         self.device = device
         self.config = config
@@ -30,6 +43,7 @@ class TVFLIDSClient(fl.client.NumPyClient):
         self.attack_kwargs = attack_kwargs or {}
         self.seed = self.attack_kwargs.get("seed", 42)
         self.factory = AdversarialAttackFactory()
+        self.proxy_val_data = proxy_val_data
 
         self.X_train_np = X_train.copy()
         self.y_train_np = y_train.copy()
@@ -57,17 +71,6 @@ class TVFLIDSClient(fl.client.NumPyClient):
         self.set_parameters(parameters)
         global_params = [p.copy() for p in parameters]
 
-        # ── Reproducibility ────────────────────────────────────────────
-        # Every virtual client runs inside a Ray worker process whose torch
-        # RNG this code never seeded, so the local DataLoader's shuffle order
-        # depended on which worker executed which client -- i.e. on Ray's
-        # scheduling, not on the run seed. Two invocations with the same seed
-        # therefore produced different accuracies, which
-        # tests/test_all.py::TestDeterminism::test_same_seed_same_accuracy
-        # detects. The stream below is a pure function of
-        # (run seed, client id, round), so the run is reproducible without
-        # changing what the algorithm does: the shuffle is still a fresh
-        # permutation each round, it is just a *determined* one.
         server_round = int(config.get("server_round", 0))
         run_seed = int(config.get("run_seed", self.seed))
         local_seed = (run_seed * 1_000_003
@@ -80,25 +83,41 @@ class TVFLIDSClient(fl.client.NumPyClient):
 
         X, y = self.X_train_np.copy(), self.y_train_np.copy()
 
-        # ACK1 ("Check-1 evasion"): auxiliary loss on a proxy-D_val slice,
-        # trained alongside the poisoning objective (see
-        # AdversarialAttackFactory.ack1_prepare_proxy_val docstring for the
-        # full threat-model assumption). aux_X/aux_y stay None -> the
-        # training loop below is byte-for-byte identical to the pre-ACK1
-        # path for every other (including honest) client.
         aux_X_t: Optional[torch.Tensor] = None
         aux_y_t: Optional[torch.Tensor] = None
+        is_ack3 = False
+        rho_a = float(self.attack_kwargs.get("rho_a", self.attack_kwargs.get("aux_loss_weight", 1.0)))
+        margin_m = float(self.attack_kwargs.get("m", 0.0))
+        base_val_loss = 0.0
+        base_bal_loss = 0.0
 
         # Data-level attacks BEFORE training
-        if self.is_malicious:
-            if self.attack_type == 'label_flip':
+        if self.is_malicious and self.attack_type:
+            effective_type = self.attack_type
+
+            # Check on-off scheduling for client-side attacks
+            if effective_type in ("on_off_lf", "on_off_label_flip"):
+                k = self.attack_kwargs.get("k", 30)
+                if self.factory.is_on_off_active(server_round, k=k):
+                    effective_type = "label_flip"
+                else:
+                    effective_type = "honest"
+
+            if effective_type in ('label_flip', 'lf'):
                 y = self.factory.label_flip(
                     y,
                     target_class=self.attack_kwargs.get('target_class', 0),
                     flip_ratio=self.attack_kwargs.get('flip_ratio', 1.0),
                     seed=self.seed + self.client_id,
                 )
-            elif self.attack_type == 'backdoor':
+            elif effective_type in ('lf_r', 'label_flip_random'):
+                y = self.factory.label_flip_random(
+                    y,
+                    num_classes=self.attack_kwargs.get('num_classes', 5),
+                    flip_ratio=self.attack_kwargs.get('flip_ratio', 1.0),
+                    seed=self.seed + self.client_id,
+                )
+            elif effective_type == 'backdoor':
                 X, y = self.factory.backdoor_attack(
                     X, y,
                     trigger_feature_idx=self.attack_kwargs.get('trigger_feature_idx', 0),
@@ -107,21 +126,55 @@ class TVFLIDSClient(fl.client.NumPyClient):
                     poison_ratio=self.attack_kwargs.get('poison_ratio', 0.1),
                     seed=self.seed + self.client_id,
                 )
-            elif self.attack_type == 'ack1_evasion':
-                X, y, X_proxy, y_proxy = self.factory.ack1_prepare_proxy_val(
-                    X, y,
-                    proxy_ratio=self.attack_kwargs.get('proxy_val_ratio', 0.15),
-                    seed=self.seed + self.client_id,
-                )
+            elif effective_type in ('ack1', 'ack1_evasion'):
+                # ACK1: Relabel all attack samples to benign (0)
                 y = self.factory.label_flip(
                     y,
                     target_class=self.attack_kwargs.get('target_class', 0),
                     flip_ratio=self.attack_kwargs.get('flip_ratio', 1.0),
                     seed=self.seed + self.client_id,
                 )
-                if len(X_proxy) > 0:
-                    aux_X_t = torch.tensor(X_proxy, dtype=torch.float32).to(self.device)
-                    aux_y_t = torch.tensor(y_proxy, dtype=torch.long).to(self.device)
+                if self.proxy_val_data is not None:
+                    pX, py = self.proxy_val_data
+                else:
+                    _, _, pX, py = self.factory.ack1_prepare_proxy_val(
+                        self.X_train_np, self.y_train_np,
+                        proxy_ratio=self.attack_kwargs.get('proxy_val_ratio', 0.15),
+                        seed=self.seed + self.client_id,
+                    )
+                if len(pX) > 0:
+                    aux_X_t = torch.tensor(pX, dtype=torch.float32).to(self.device)
+                    aux_y_t = torch.tensor(py, dtype=torch.long).to(self.device)
+                    with torch.no_grad():
+                        self.model.eval()
+                        base_val_loss = self.criterion(self.model(aux_X_t), aux_y_t).item()
+                        self.model.train()
+
+            elif effective_type in ('ack3', 'ack3_evasion'):
+                # ACK3: Relabel only majority attack classes (DoS=1, Probe=2) to benign (0)
+                is_ack3 = True
+                dos_probe_idx = np.where((y == 1) | (y == 2))[0]
+                if len(dos_probe_idx) > 0:
+                    y[dos_probe_idx] = 0
+
+                if self.proxy_val_data is not None:
+                    pX, py = self.proxy_val_data
+                else:
+                    _, _, pX, py = self.factory.ack1_prepare_proxy_val(
+                        self.X_train_np, self.y_train_np,
+                        proxy_ratio=self.attack_kwargs.get('proxy_val_ratio', 0.15),
+                        seed=self.seed + self.client_id,
+                    )
+                if len(pX) > 0:
+                    aux_X_t = torch.tensor(pX, dtype=torch.float32).to(self.device)
+                    aux_y_t = torch.tensor(py, dtype=torch.long).to(self.device)
+                    with torch.no_grad():
+                        self.model.eval()
+                        base_val_loss = self.criterion(self.model(aux_X_t), aux_y_t).item()
+                        _, base_bal_loss, _, _ = compute_class_balanced_loss_from_tensors(
+                            self.model(aux_X_t), aux_y_t
+                        )
+                        self.model.train()
 
         # Local training
         bs = self.config.get('local_batch_size', 256)
@@ -132,28 +185,30 @@ class TVFLIDSClient(fl.client.NumPyClient):
             generator=loader_generator,
             drop_last=(len(X) > bs))
 
-        aux_loss_weight = self.attack_kwargs.get('aux_loss_weight', 0.5)
         self.model.train()
-        # Paper Table XII's first row is the per-client local-training cost.
-        # Nothing measured it: OverheadTracker only instruments the server's
-        # aggregate_fit, so the table's client row -- and therefore the FedAvg
-        # total it is part of, and the percentage overhead computed against
-        # that total -- had no instrumented source. Timing the loop here gives
-        # the strategy a genuine per-client figure to record.
         _train_t0 = _perf_counter()
         for _ in range(self.config.get('local_epochs', 5)):
             for Xb, yb in loader:
                 Xb, yb = Xb.to(self.device), yb.to(self.device)
                 self.optimizer.zero_grad()
                 loss = self.criterion(self.model(Xb), yb)
+
                 if aux_X_t is not None:
-                    # ACK1's combined objective: poisoning loss on the
-                    # (label-flipped) local batch PLUS an auxiliary loss on
-                    # the clean proxy-D_val slice, so the resulting update
-                    # is trained to also look loss-improving to Check 1's
-                    # server-validation-style evaluation.
-                    aux_loss = self.criterion(self.model(aux_X_t), aux_y_t)
-                    loss = loss + aux_loss_weight * aux_loss
+                    # Auxiliary validation evaluation on proxy slice
+                    logits_val = self.model(aux_X_t)
+                    cur_val_loss = self.criterion(logits_val, aux_y_t)
+                    # Hinge 1: rho_a * max(0, l_val(w) - l_val(w_global) + m)
+                    h1 = rho_a * torch.relu(cur_val_loss - base_val_loss + margin_m)
+                    loss = loss + h1
+
+                    if is_ack3:
+                        # Hinge 2: rho_a * max(0, l_bal(w) - l_bal(w_global))
+                        _, cur_bal_loss, _, _ = compute_class_balanced_loss_from_tensors(
+                            logits_val, aux_y_t
+                        )
+                        h2 = rho_a * torch.relu(torch.tensor(cur_bal_loss - base_bal_loss, device=self.device))
+                        loss = loss + h2
+
                 loss.backward()
                 self.optimizer.step()
 
@@ -161,7 +216,7 @@ class TVFLIDSClient(fl.client.NumPyClient):
 
         # Model-level attacks AFTER training
         new_params = self.model.get_parameters()
-        if self.is_malicious:
+        if self.is_malicious and self.attack_type:
             if self.attack_type == 'gradient_scale':
                 new_params = self.factory.gradient_scale(
                     new_params, global_params,
@@ -173,9 +228,6 @@ class TVFLIDSClient(fl.client.NumPyClient):
         val_loss = self._val_loss(new_params)
         return new_params, len(X), {
             'val_loss': float(val_loss),
-            # Local-training wall clock for this client, this round, in ms.
-            # Excludes attack application and the validation-loss pass, so it
-            # is the "client local training" row of Table XII and nothing else.
             'train_time_ms': float(train_time_ms),
         }
 

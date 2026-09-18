@@ -194,8 +194,9 @@ class TestStrategyUsesSTE:
         """Regression guard: the meta-gradient path must not silently revert
         to torch.clamp, which would contradict Section IV-C."""
         import inspect
-        import fl.strategy as strat
+        from trust.adaptive_trust_scorer import AdaptiveTrustScorer
 
-        src = inspect.getsource(strat.TVFLIDSStrategy.aggregate_fit)
+        src = inspect.getsource(AdaptiveTrustScorer.compute_meta_loss)
         assert "clip_ste(" in src
         assert "torch.clamp(" not in src
+

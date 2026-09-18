@@ -11,7 +11,7 @@ import flwr as fl
 from flwr.common import FitRes, Parameters, Scalar, ndarrays_to_parameters, parameters_to_ndarrays
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
-from attacks.adversarial import apply_min_max_attack_to_params
+from attacks.adversarial import apply_round_attacks, apply_min_max_attack_to_params
 from evaluation.overhead import OverheadTracker
 from fl.ordering import order_results
 
@@ -90,15 +90,18 @@ class FedAvgStrategy(FedAvg):
             for _, fit_res in results
         ]
 
-        if self.attack_type == "min_max" and self.global_model is not None:
+        if self.attack_type and self.global_model is not None:
             global_params = self.global_model.get_parameters()
             params_only = [p for p, _ in params_list]
-            params_only = apply_min_max_attack_to_params(
-                params_only,
-                global_params,
-                client_ids,
-                self.malicious_ids,
-                gamma=self.attack_kwargs.get("gamma", 2.0),
+            params_only = apply_round_attacks(
+                client_params=params_only,
+                global_params=global_params,
+                client_ids=client_ids,
+                malicious_ids=self.malicious_ids,
+                attack_type=self.attack_type,
+                attack_kwargs=self.attack_kwargs,
+                global_model=self.global_model,
+                server_round=server_round,
             )
             params_list = list(zip(params_only, [n for _, n in params_list]))
 

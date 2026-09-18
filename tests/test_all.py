@@ -166,7 +166,8 @@ class TestTrustScorer(unittest.TestCase):
 
     def test_accuracy_scores_clip(self):
         acc = self.ts.compute_accuracy_scores(1.0, [0.5, 1.5, 1.0, 0.8, 2.0])
-        self.assertTrue(np.all(acc >= 0) and np.all(acc <= 1))
+        self.assertTrue(np.all(acc >= -1.0) and np.all(acc <= 1.0))
+        self.assertLess(acc[1], 0)  # Loss increased 1.0 -> 1.5, so A_i < 0 per paper Eq. (6)
 
     def test_anomaly_scores_range(self):
         anom = self.ts.compute_anomaly_scores(self.updates)
@@ -192,9 +193,9 @@ class TestTrustScorer(unittest.TestCase):
         self.assertTrue(np.all(self.ts.trust_scores >= self.ts.min_trust))
 
     def test_reset(self):
-        self.ts.trust_scores[:] = 0.5
+        self.ts.trust_scores[:] = 0.1
         self.ts.reset()
-        np.testing.assert_allclose(self.ts.trust_scores, np.ones(10))
+        np.testing.assert_allclose(self.ts.trust_scores, np.full(10, self.ts.initial_trust))
 
 
 # ── Adaptive Trust Tests ──────────────────────────────────────────────────────

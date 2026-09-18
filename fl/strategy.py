@@ -14,8 +14,12 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
 from trust.trust_scorer import TrustScorer
 from trust.adaptive_trust_scorer import AdaptiveTrustScorer
-from trust.verification import VerificationModule
-from attacks.adversarial import apply_min_max_attack_to_params, apply_ack2_attack_to_params
+from trust.verification import VerificationModule, compute_class_balanced_loss
+from attacks.adversarial import (
+    apply_round_attacks,
+    apply_min_max_attack_to_params,
+    apply_ack2_attack_to_params,
+)
 from evaluation.overhead import OverheadTracker
 from utils.ste import clip_ste
 import hashlib
@@ -51,15 +55,33 @@ class TVFLIDSStrategy(FedAvg):
         self._last_round_data: Optional[Dict] = None
         # per-round evaluation cache: param-hash -> loss
         self._eval_cache: Dict[str, float] = {}
+        self._eval_bal_cache: Dict[str, float] = {}
+
+        self.val_data = None
+        if val_loader is not None and self.attack_type in ("ack2", "ack4", "on_off_ack2"):
+            if hasattr(val_loader, "dataset") and hasattr(val_loader.dataset, "tensors"):
+                tensors = val_loader.dataset.tensors
+                self.val_data = (tensors[0].cpu().numpy(), tensors[1].cpu().numpy())
+            elif hasattr(val_loader, "dataset") and hasattr(val_loader.dataset, "__len__"):
+                val_X_list, val_y_list = [], []
+                for i in range(len(val_loader.dataset)):
+                    x, y = val_loader.dataset[i]
+                    val_X_list.append(x.numpy() if hasattr(x, "numpy") else np.array(x))
+                    val_y_list.append(y.numpy() if hasattr(y, "numpy") else np.array(y))
+                if val_X_list:
+                    self.val_data = (np.stack(val_X_list, axis=0), np.stack(val_y_list, axis=0))
 
         t = config.get('trust', {})
         v = config.get('verification', {})
 
         self.trust_scorer = (
             AdaptiveTrustScorer(num_clients=num_clients,
-                                memory_decay=t.get('memory_decay', 0.9),
+                                lambda_up=t.get('lambda_up', 0.9),
+                                lambda_down=t.get('lambda_down', 0.7),
                                 min_trust=t.get('min_trust', 0.01),
-                                meta_lr=t.get('meta_lr', 0.01))
+                                initial_trust=t.get('initial_trust', 0.5),
+                                meta_lr=t.get('meta_lr', 0.01),
+                                memory_decay=t.get('memory_decay', None))
             if adaptive else
             # Fallback weights are 1/3 each, matching paper Table IV
             # ("Initial alpha,beta,gamma = 1/3 each") and ablation A6. They are
@@ -68,8 +90,11 @@ class TVFLIDSStrategy(FedAvg):
             TrustScorer(num_clients=num_clients,
                         alpha=t.get('alpha', 1/3), beta=t.get('beta', 1/3),
                         gamma=t.get('gamma', 1/3),
-                        memory_decay=t.get('memory_decay', 0.9),
-                        min_trust=t.get('min_trust', 0.01))
+                        lambda_up=t.get('lambda_up', 0.9),
+                        lambda_down=t.get('lambda_down', 0.7),
+                        min_trust=t.get('min_trust', 0.01),
+                        initial_trust=t.get('initial_trust', 0.5),
+                        memory_decay=t.get('memory_decay', None))
         )
 
         self.verifier = VerificationModule(
@@ -134,6 +159,7 @@ class TVFLIDSStrategy(FedAvg):
 
         # Clear per-round eval cache to avoid unbounded growth and ensure freshness
         self._eval_cache.clear()
+        self._eval_bal_cache.clear()
 
         _ohead = self.overhead_tracker if self.track_overhead else _NullTracker()
         _round_timer = _ohead.time_phase("total")
@@ -146,29 +172,18 @@ class TVFLIDSStrategy(FedAvg):
         client_ids    = [int(p.cid) for p, _ in results]
         global_params = self.model.get_parameters()
 
-        if self.attack_type == "min_max" and self._known_malicious:
-            client_params = apply_min_max_attack_to_params(
-                client_params,
-                global_params,
-                client_ids,
-                list(self._known_malicious),
-                gamma=self.attack_kwargs.get("gamma", 2.0),
-            )
-        elif self.attack_type == "ack2_coalition" and self._known_malicious:
-            # ACK2 ("Check-2 coalition evasion"): strategy-level, post-
-            # training coalition attack. Needs visibility across all
-            # colluding malicious clients' submitted updates this round,
-            # so it (like min_max above) must be applied here, before
-            # verify_all() computes the round's pseudo-gradient. See
-            # attacks/adversarial.py::apply_ack2_attack_to_params.
-            client_params = apply_ack2_attack_to_params(
-                client_params,
-                global_params,
-                client_ids,
-                list(self._known_malicious),
-                poison_strength=self.attack_kwargs.get("poison_strength", 1.0),
-                shift_scale=self.attack_kwargs.get("shift_scale", 1.0),
-            )
+        client_params = apply_round_attacks(
+            client_params=client_params,
+            global_params=global_params,
+            client_ids=client_ids,
+            malicious_ids=list(self._known_malicious) if self._known_malicious else None,
+            attack_type=self.attack_type,
+            attack_kwargs=self.attack_kwargs,
+            global_model=self.model,
+            val_data=getattr(self, "val_data", None),
+            server_round=server_round,
+            seed=self.seed,
+        )
 
         # Δw_i = w_i^trained − w_global (raw client updates)
         raw_updates = [[c - g for c, g in zip(cp, global_params)] for cp in client_params]
@@ -192,101 +207,99 @@ class TVFLIDSStrategy(FedAvg):
         clipped_updates, clipping_radius, raw_norms = self.verifier.clip_updates(raw_updates)
 
         # ── STAGE 2: Single Validation-Loss Gate (Paper §IV, Eq. (4)) ──
-        global_loss = self._eval_model(global_params)
+        global_val_loss, global_bal_loss = self._eval_model_both(global_params)
+        global_loss = global_val_loss
         with _ohead.time_phase("verification"):
             vr = self.verifier.evaluate_validation_gate(
-                clipped_updates, client_ids, global_loss, global_params,
+                clipped_updates, client_ids, global_val_loss, global_params,
                 self.model, self.device, self.val_loader,
                 eval_cache=self._eval_cache,
+                eval_bal_cache=self._eval_bal_cache,
                 loss_threshold=self.verifier.loss_threshold)
 
         active = vr['accepted']
-        if not active:
-            _round_timer.__exit__(None, None, None)
-            # Same key schema as the normal path (minus the trust summary, which
-            # is undefined when nothing was aggregated), so a consumer parsing
-            # round logs does not have to special-case this branch.
-            log = {'round': server_round, 'all_rejected': 1,
-                   'global_loss': float(global_loss),
-                   'num_accepted': 0, 'num_verified': 0, 'num_flagged': 0,
-                   'num_rejected': len(vr['rejected']),
-                   'clipping_radius': float(clipping_radius),
-                   'tau_z': float(self.verifier.zscore_threshold),
-                   'tau_L': float(self.verifier.loss_threshold)}
-            if self.track_overhead:
-                for _phase in ("client_processing", "verification", "total"):
-                    _times = self.overhead_tracker.timings.get(_phase)
-                    if _times:
-                        log[f'time_{_phase}_ms'] = float(_times[-1] * 1000.0)
-            self.round_logs.append(log)
-            return ndarrays_to_parameters(global_params), log
-
+        rejected = vr['rejected']
+        rej_ids = [cid for cid, _ in rejected]
         a_ids  = [cid for cid, _ in active]
-        a_upds = [upd for _, upd in active]  # CLIPPED updates
-        a_pars = [[g + u for g, u in zip(global_params, upd)] for upd in a_upds]
 
-        if self.config.get("log_client_params", False):
-            honest_ids = [cid for cid in a_ids if cid not in self._known_malicious]
-            byzantine_ids = [cid for cid in a_ids if cid in self._known_malicious]
-            self._last_round_data = {
-                "honest_ids": honest_ids,
-                "byzantine_ids": byzantine_ids,
-                "trust_scores": self.trust_scorer.trust_scores.copy(),
-                "client_params": {cid: a_pars[i] for i, cid in enumerate(a_ids)},
-            }
-
-        # ── STEP 2: Trust signals ─────────────────────────────────────
+        # ── STAGE 3: Trust signals & Memory (Paper §IV, Eq. (5)–(7), Alg. 1) ──
         with _ohead.time_phase("trust_scoring"):
+            # Compute norm outlier scores over ALL participants P using unclipped updates
+            anom_all = self.trust_scorer.compute_anomaly_scores(
+                raw_updates, tau_z=self.verifier.zscore_threshold, cohort_norms=raw_norms
+            )
+            anom_map = {cid: float(anom_all[idx]) for idx, cid in enumerate(client_ids)}
+
+            if not active:
+                # All participants rejected! Algorithm 1 lines 6-8:
+                # s_i = 0 for all i in P \ A (which is all participants).
+                # Update trust with penalty branch for all participants.
+                self.trust_scorer.update_trust(
+                    client_ids=[], similarity_scores=np.array([]),
+                    accuracy_scores=np.array([]), anomaly_scores=np.array([]),
+                    participant_ids=client_ids, rejected_ids=client_ids
+                )
+                _round_timer.__exit__(None, None, None)
+                log = {'round': server_round, 'all_rejected': 1,
+                       'global_loss': float(global_val_loss),
+                       'global_bal_loss': float(global_bal_loss),
+                       'num_accepted': 0, 'num_verified': 0, 'num_flagged': 0,
+                       'num_rejected': len(client_ids),
+                       'clipping_radius': float(clipping_radius),
+                       'tau_z': float(self.verifier.zscore_threshold),
+                       'tau_L': float(self.verifier.loss_threshold)}
+                if self.track_overhead:
+                    for _phase in ("client_processing", "verification", "trust_scoring", "total"):
+                        _times = self.overhead_tracker.timings.get(_phase)
+                        if _times:
+                            log[f'time_{_phase}_ms'] = float(_times[-1] * 1000.0)
+                self.round_logs.append(log)
+                return ndarrays_to_parameters(global_params), log
+
+            a_upds = [upd for _, upd in active]  # CLIPPED updates
+            a_pars = [[g + u for g, u in zip(global_params, upd)] for upd in a_upds]
+
+            if self.config.get("log_client_params", False):
+                honest_ids = [cid for cid in a_ids if cid not in self._known_malicious]
+                byzantine_ids = [cid for cid in a_ids if cid in self._known_malicious]
+                self._last_round_data = {
+                    "honest_ids": honest_ids,
+                    "byzantine_ids": byzantine_ids,
+                    "trust_scores": self.trust_scorer.trust_scores.copy(),
+                    "client_params": {cid: a_pars[i] for i, cid in enumerate(a_ids)},
+                }
+
+            # Direction signal S_i: relative to mean clipped update of accepted cohort
             mean_upd = [np.mean([u[i] for u in a_upds], axis=0) for i in range(len(global_params))]
             sim  = self.trust_scorer.compute_similarity_scores(a_upds, mean_upd)
-            client_val_losses = [self._eval_model(p) for p in a_pars]  # compute ONCE (cached)
-            acc  = self.trust_scorer.compute_accuracy_scores(global_loss, client_val_losses)
-            # eq:anom, O_i = 1 - exp(-z_i / tau_z), reads unclipped norms because
-            # clipping equalizes the largest half of them (Paper §IV line 186).
-            a_raw_upds = [raw_updates[client_ids.index(cid)] for cid in a_ids]
-            anom = self.trust_scorer.compute_anomaly_scores(
-                a_raw_upds, tau_z=self.verifier.zscore_threshold)
 
-            # STEP 3: Update trust (meta-gradient step follows below)
-            self.trust_scorer.update_trust(a_ids, sim, acc, anom)
+            # Accuracy signal A_i: class-balanced validation loss improvement
+            client_bal_losses = [vr['bal_losses'][cid] for cid in a_ids]
+            client_val_losses = [vr['val_losses'][cid] for cid in a_ids]
+            acc  = self.trust_scorer.compute_accuracy_scores(global_bal_loss, client_bal_losses)
+            anom = np.array([anom_map[cid] for cid in a_ids], dtype=np.float64)
+
+            # Update trust for all participants P (both accepted and rejected)
+            self.trust_scorer.update_trust(
+                client_ids=a_ids,
+                similarity_scores=sim,
+                accuracy_scores=acc,
+                anomaly_scores=anom,
+                participant_ids=client_ids,
+                rejected_ids=rej_ids,
+            )
 
         adaptive_snap = None
         if self.adaptive and isinstance(self.trust_scorer, AdaptiveTrustScorer):
-            _sim, _acc, _anom = sim.copy(), acc.copy(), anom.copy()
-            _cached_losses = client_val_losses[:]   # snapshot in closure
-
-            def _val_fn(alpha, beta, gamma):
-                """
-                Differentiable trust-weighted aggregation loss.
-                Connects alpha/beta/gamma to validation loss via per-client val losses.
-                """
-                per_client_losses = torch.tensor(_cached_losses, dtype=torch.float32)
-                sim_t = torch.tensor(_sim, dtype=torch.float32)
-                acc_t = torch.tensor(_acc, dtype=torch.float32)
-                anom_t = torch.tensor(_anom, dtype=torch.float32)
-
-                # eq:hatw: clip_[0,1] with a STRAIGHT-THROUGH gradient, per
-                # Section IV-C ("we employ the straight-through estimator").
-                # torch.clamp zeroes the gradient for any client whose raw
-                # signal is saturated, so those clients could not influence
-                # dL_meta/dv at all - the opposite of what the paper states.
-                # Forward values are identical to torch.clamp.
-                raw_scores = clip_ste(
-                    alpha * sim_t + beta * acc_t - gamma * anom_t, 0.0, 1.0
-                )
-                total = raw_scores.sum()
-                weights = raw_scores / (total + 1e-8)
-
-                weighted_val_loss = (weights * per_client_losses).sum()
-                return weighted_val_loss
-
             with _ohead.time_phase("meta_gradient"):
-                try:
-                    adaptive_snap = self.trust_scorer.meta_update(_val_fn)
-                except Exception:
-                    pass
+                adaptive_snap = self.trust_scorer.adapt_weights(
+                    similarity_scores=sim,
+                    accuracy_scores=acc,
+                    anomaly_scores=anom,
+                    val_losses=client_val_losses,
+                )
 
-        # ── STEP 4: Weighted aggregation ──────────────────────────────
+        # ── STAGE 5: Final Model Aggregation (Paper §IV, Eq. (11), Alg. 1) ──
         with _ohead.time_phase("aggregation"):
             weights = self.trust_scorer.get_aggregation_weights(a_ids)
             aggregated = [
@@ -300,6 +313,7 @@ class TVFLIDSStrategy(FedAvg):
         ts = self.trust_scorer.get_summary()
         log = {
             'round': server_round, 'global_loss': float(global_loss),
+            'global_bal_loss': float(global_bal_loss),
             'num_accepted': len(vr['accepted']),
             'num_verified': len(vr['verified']), 'num_flagged': len(vr['flagged']),
             'num_rejected': len(vr['rejected']), 'all_rejected': 0,
@@ -318,36 +332,34 @@ class TVFLIDSStrategy(FedAvg):
             log['adaptive_alpha'] = float(adaptive_snap['alpha'])
             log['adaptive_beta'] = float(adaptive_snap['beta'])
             log['adaptive_gamma'] = float(adaptive_snap['gamma'])
+            if 'loss' in adaptive_snap:
+                log['meta_loss'] = float(adaptive_snap['loss'])
+            if 'saturated' in adaptive_snap:
+                log['clip_saturated'] = int(adaptive_snap['saturated'])
         self.round_logs.append(log)
         return ndarrays_to_parameters(aggregated), log
 
-    def _eval_model(self, params: List[np.ndarray]) -> float:
-        # Compute a deterministic hash for this parameter set and consult cache
+    def _eval_model_both(self, params: List[np.ndarray]) -> Tuple[float, float]:
         try:
             key = hashlib.sha256(pickle.dumps(params)).hexdigest()
         except Exception:
-            # Fallback: no caching if hashing fails
             key = None
 
-        if key is not None and key in self._eval_cache:
-            return self._eval_cache[key]
+        if key is not None and key in self._eval_cache and key in self._eval_bal_cache:
+            return self._eval_cache[key], self._eval_bal_cache[key]
 
-        orig = self.model.get_parameters()
-        self.model.set_parameters(params)
-        self.model.eval()
-        criterion = nn.CrossEntropyLoss()
-        total, n = 0.0, 0
-        with torch.no_grad():
-            for X, y in self.val_loader:
-                total += criterion(self.model(X.to(self.device)), y.to(self.device)).item()
-                n += 1
-        self.model.set_parameters(orig)
-        self.model.train()
-
-        loss = total / max(n, 1)
+        val_loss, bal_loss, _, _ = compute_class_balanced_loss(
+            self.model, params, self.val_loader, self.device,
+            eval_cache=self._eval_cache, eval_bal_cache=self._eval_bal_cache
+        )
         if key is not None:
-            self._eval_cache[key] = loss
-        return loss
+            self._eval_cache[key] = val_loss
+            self._eval_bal_cache[key] = bal_loss
+        return val_loss, bal_loss
+
+    def _eval_model(self, params: List[np.ndarray]) -> float:
+        val_loss, _ = self._eval_model_both(params)
+        return val_loss
 
     def get_trust_history(self) -> Dict[int, List[float]]:
         return self.trust_scorer.trust_history
@@ -357,6 +369,7 @@ class TVFLIDSStrategy(FedAvg):
         self.round_logs.clear()
         # Clear eval cache when resetting trust history
         self._eval_cache.clear()
+        self._eval_bal_cache.clear()
         self.overhead_tracker = OverheadTracker()
 
     def get_overhead_summary(self) -> Dict[str, float]:
