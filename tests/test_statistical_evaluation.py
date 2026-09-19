@@ -252,13 +252,8 @@ def test_seed_pairing_duplicate_seed_detection(temp_results_dir):
 # 7. Wilcoxon Exact Behavior, 8. Zero-Difference & Tie Handling
 # ===========================================================================
 
-def test_wilcoxon_hand_computed_fixture():
-    """
-    Hand-computed Wilcoxon signed-rank test:
-    d = [1.0, 2.0, 3.0, 4.0, 5.0]
-    All positive ranks: W+ = 1+2+3+4+5 = 15, W- = 0.
-    Exact two-sided p-value for n=5 with all signs identical: 2 * (1/2)^5 = 2/32 = 0.0625.
-    """
+def test_wilcoxon_exact_all_positive():
+    """1. All positive differences: W+ = 15, W- = 0, exact two-sided p = 2 * (1/2)^5 = 0.0625."""
     d = [1.0, 2.0, 3.0, 4.0, 5.0]
     res = wilcoxon_signed_rank_test(d)
     assert res.method_used == "exact"
@@ -267,28 +262,99 @@ def test_wilcoxon_hand_computed_fixture():
     assert res.has_ties is False
 
 
-def test_wilcoxon_zero_difference_handling():
-    """Zero differences are dropped. If all differences are zero, p=1.0, stat=0.0."""
+def test_wilcoxon_exact_mixed_differences():
+    """2. Mixed positive/negative differences: d = [1.0, 2.0, -3.0, 4.0, 5.0]."""
+    d = [1.0, 2.0, -3.0, 4.0, 5.0]
+    res = wilcoxon_signed_rank_test(d)
+    assert res.method_used == "exact"
+    # Ranks: 1, 2, 3, 4, 5. W+ = 1+2+4+5 = 12, W- = 3. Stat = 3.
+    assert res.statistic == 3.0
+    # Exact p for stat=3 on n=5: subsets of {1,2,3,4,5} summing <= 3:
+    # {}: 0, {1}: 1, {2}: 2, {3}: 3, {1,2}: 3 -> 5 subsets.
+    # 2 * 5 / 32 = 10 / 32 = 0.3125
+    assert res.p_value == pytest.approx(0.3125)
+
+
+def test_wilcoxon_exact_zero_difference_handling():
+    """3. Zero differences: dropped per protocol; if all zero, p=1.0, stat=0.0."""
     d_mixed = [0.0, 1.0, 2.0, 3.0, 4.0]
     res_mixed = wilcoxon_signed_rank_test(d_mixed)
     # n_nonzero = 4, exact p = 2 * (1/2)^4 = 2/16 = 0.125
     assert res_mixed.n_nonzero == 4
     assert res_mixed.p_value == pytest.approx(0.125)
+    assert res_mixed.method_used == "exact"
 
     d_zeros = [0.0, 0.0, 0.0]
     res_zeros = wilcoxon_signed_rank_test(d_zeros)
     assert res_zeros.n_nonzero == 0
     assert res_zeros.p_value == 1.0
     assert res_zeros.statistic == 0.0
+    assert res_zeros.method_used in ("exact", "exact_zero_fallback")
 
 
-def test_wilcoxon_ties_handling():
-    """When absolute differences have ties, asymptotic/approximate test is used."""
+def test_wilcoxon_exact_tied_absolute_differences():
+    """4. Tied absolute differences: exact calculation retained, never approx."""
+    # d = [1.0, -1.0, 2.0, -2.0, 3.0, 3.0]
+    # |d| = [1, 1, 2, 2, 3, 3] -> ranks = [1.5, 1.5, 3.5, 3.5, 5.5, 5.5]
     d_ties = [1.0, -1.0, 2.0, -2.0, 3.0, 3.0]
     res = wilcoxon_signed_rank_test(d_ties)
     assert res.has_ties is True
-    assert res.method_used == "approx"
+    assert res.method_used == "exact"
+    assert res.method_used != "approx"  # Explicit assertion against asymptotic fallback
     assert 0.0 <= res.p_value <= 1.0
+
+
+def test_wilcoxon_exact_repeated_tied_ranks():
+    """5. Repeated tied ranks (e.g. 4-way tie and 3-way tie)."""
+    d = [1.0, 1.0, -1.0, -1.0, 2.0, 2.0, -2.0]
+    res = wilcoxon_signed_rank_test(d)
+    assert res.has_ties is True
+    assert res.method_used == "exact"
+    assert res.method_used != "approx"
+    assert 0.0 <= res.p_value <= 1.0
+
+
+def test_wilcoxon_exact_deterministic_repeated_executions():
+    """6. Identical results from repeated executions."""
+    d = [1.2, -1.2, 3.4, 2.1, -2.1, 5.0, -0.5]
+    res1 = wilcoxon_signed_rank_test(d)
+    res2 = wilcoxon_signed_rank_test(d)
+    assert res1.statistic == res2.statistic
+    assert res1.p_value == res2.p_value
+    assert res1.method_used == "exact"
+
+
+def test_wilcoxon_exact_vs_independent_sign_permutation():
+    """
+    7. Independent verification: compare exact DP result against an
+    independent sign-permutation enumeration over all 2^N assignments.
+    """
+    from itertools import product
+    from scipy.stats import rankdata
+
+    # Test vector with ties and mixed signs
+    d = np.array([1.5, -1.5, 2.0, -2.0, 3.5, 4.0, -4.0])
+    N = len(d)
+
+    # 1. Independent calculation
+    ranks_indep = rankdata(np.abs(d), method="average")
+    w_plus_indep = sum(ranks_indep[d > 0])
+    w_minus_indep = sum(ranks_indep[d < 0])
+    w_obs_indep = min(w_plus_indep, w_minus_indep)
+
+    # Enumerate all 2^N sign combinations independently
+    count_le_indep = sum(
+        1 for signs in product([0, 1], repeat=N)
+        if sum(s * r for s, r in zip(signs, ranks_indep)) <= w_obs_indep
+    )
+    p_exact_indep = min(1.0, (2.0 * count_le_indep) / (2 ** N))
+
+    # 2. Production implementation
+    res = wilcoxon_signed_rank_test(d)
+
+    assert res.method_used == "exact"
+    assert res.statistic == pytest.approx(w_obs_indep)
+    assert res.p_value == pytest.approx(p_exact_indep, abs=1e-12)
 
 
 # ===========================================================================
