@@ -76,6 +76,5 @@ results/_campaign_logs/
 campaign_results/
 results/_campaign/colab/
 colab/__pycache__/
-PROJECT_MEMORY.md
 PROJECT_PAPER_ALIGNMENT_AUDIT.md
 AUDIT_VERIFICATION_AND_CORRECTIONS.md
