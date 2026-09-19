@@ -4,7 +4,7 @@
   "d": 46,
   "K": 8,
   "expected_params": 54600,
-  "created_utc": "2026-09-19T13:12:38.191810Z",
+  "created_utc": "2026-09-19T13:45:40.294425Z",
   "files": [
     {
       "path": "data/raw/CICIoT2023_train.csv",

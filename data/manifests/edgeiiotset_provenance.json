@@ -4,7 +4,7 @@
   "d": 61,
   "K": 6,
   "expected_params": 58310,
-  "created_utc": "2026-09-19T13:00:07.284920Z",
+  "created_utc": "2026-09-19T13:45:47.969337Z",
   "files": [
     {
       "path": "data/raw/EdgeIIoTset_train.csv",
