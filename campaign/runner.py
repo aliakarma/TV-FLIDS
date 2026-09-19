@@ -29,7 +29,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from campaign.run_spec import RunSpecification
-from campaign.config_freezer import freeze_configuration
+from campaign.config_freezer import freeze_configuration, resolve_dataset_provenance
 from campaign.artifacts import (
     get_artifact_directory,
     read_metrics,
@@ -37,6 +37,7 @@ from campaign.artifacts import (
     write_metrics,
     write_status,
 )
+from utils.provenance import git_state
 from utils.seed import set_all_seeds
 from experiments.run_experiment import run_experiment
 
@@ -71,14 +72,77 @@ def check_dataset_availability(dataset: str) -> Tuple[bool, str]:
     return False, f"Unknown dataset '{dataset}'."
 
 
+def check_provenance_compatibility(
+    spec: RunSpecification,
+    stored_config: Dict[str, Any],
+    current_git: Optional[Dict[str, Any]] = None,
+    current_dataset_prov: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Verify that an existing completed run artifact matches the requested
+    implementation commit, dataset provenance, and scientific configuration.
+
+    Returns (is_compatible, error_message).
+    """
+    # 1. Scientific configuration match
+    stored_sci = stored_config.get("scientific_configuration", {})
+    curr_sci = spec.to_scientific_dict()
+    if stored_sci != curr_sci:
+        return False, (
+            f"Completed artifact exists for run_id={spec.run_id}, but scientific configuration differs!\n"
+            f"Stored: {stored_sci}\n"
+            f"Requested: {curr_sci}\n"
+            f"Refusing cached-result reuse."
+        )
+
+    # 2. Implementation commit match
+    curr_git_info = current_git if current_git is not None else git_state()
+    curr_commit = curr_git_info.get("git_commit")
+    stored_commit = stored_config.get("git_provenance", {}).get("git_commit")
+
+    if stored_commit != curr_commit:
+        return False, (
+            f"Completed artifact exists for run_id={spec.run_id}, but provenance differs:\n"
+            f"stored_commit={stored_commit}\n"
+            f"current_commit={curr_commit}\n"
+            f"Refusing cached-result reuse."
+        )
+
+    # 3. Dataset provenance match
+    curr_data_prov = (
+        current_dataset_prov
+        if current_dataset_prov is not None
+        else resolve_dataset_provenance(spec.dataset)
+    )
+    stored_data_prov = stored_config.get("dataset_provenance")
+
+    if stored_data_prov != curr_data_prov:
+        return False, (
+            f"Completed artifact exists for run_id={spec.run_id}, but dataset provenance differs:\n"
+            f"stored_dataset_provenance={stored_data_prov}\n"
+            f"current_dataset_provenance={curr_data_prov}\n"
+            f"Refusing cached-result reuse."
+        )
+
+    return True, None
+
+
 class CampaignRunner:
     """
     Executes or resumes experimental runs with full reproducibility guarantees.
     """
 
-    def __init__(self, base_results_dir: str = "results", allow_dirty: bool = False):
+    def __init__(
+        self,
+        base_results_dir: str = "results",
+        allow_dirty: bool = False,
+        current_git: Optional[Dict[str, Any]] = None,
+        current_dataset_prov: Optional[Dict[str, Any]] = None,
+    ):
         self.base_results_dir = base_results_dir
         self.allow_dirty = allow_dirty
+        self.current_git = current_git
+        self.current_dataset_prov = current_dataset_prov
 
     def execute_run(
         self,
@@ -111,29 +175,45 @@ class CampaignRunner:
                 "dataset": spec.dataset,
             }
 
-        # ── 2. Checkpoint & Resume Evaluation (Part G) ─────────────────────────
+        # ── 2. Checkpoint & Resume Evaluation (Provenance-Safe) ───────────────
         existing_status = read_status(output_dir)
         config_path = os.path.join(output_dir, "config.json")
 
         if not force and existing_status and existing_status.get("status") == "COMPLETED":
-            # Verify configuration match
+            # Verify configuration and provenance match
             if os.path.exists(config_path):
                 try:
                     with open(config_path, "r", encoding="utf-8") as f:
                         stored_config = json.load(f)
+                except (OSError, json.JSONDecodeError) as exc:
+                    if verbose:
+                        print(f"[Runner] Corrupted config.json in {output_dir}: {exc}. Restarting run.")
+                    stored_config = None
+
+                if stored_config is not None:
                     stored_run_id = stored_config.get("run_id")
                     if stored_run_id != spec.run_id:
                         raise RuntimeError(
                             f"Configuration mismatch during resume! Stored run_id "
                             f"'{stored_run_id}' does not match expected run_id '{spec.run_id}'."
                         )
-                except (OSError, json.JSONDecodeError) as exc:
-                    print(f"[Runner] Corrupted config.json in {output_dir}: {exc}. Restarting run.")
+
+                    compatible, reason = check_provenance_compatibility(
+                        spec=spec,
+                        stored_config=stored_config,
+                        current_git=self.current_git,
+                        current_dataset_prov=self.current_dataset_prov,
+                    )
+                    if not compatible:
+                        raise RuntimeError(reason)
+            else:
+                if verbose:
+                    print(f"[Runner] Status was COMPLETED but config.json is missing in {output_dir}. Restarting run.")
 
             cached_metrics = read_metrics(output_dir)
             if cached_metrics is not None:
                 if verbose:
-                    print(f"[Runner] Run {spec.run_id} is already COMPLETED. Reusing cached results.")
+                    print(f"[Runner] Run {spec.run_id} is already COMPLETED with matching provenance. Reusing cached results.")
                 return {
                     "status": "COMPLETED",
                     "run_id": spec.run_id,
@@ -157,6 +237,8 @@ class CampaignRunner:
                 spec,
                 output_dir,
                 allow_dirty=self.allow_dirty,
+                git_info=self.current_git,
+                dataset_prov=self.current_dataset_prov,
             )
         except RuntimeError as exc:
             # Dirty tree failure

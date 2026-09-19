@@ -13,7 +13,11 @@ from campaign.enumerator import (
     FIVE_EVAL_METHODS,
     ALL_3_DATASETS,
 )
-from campaign.config_freezer import freeze_configuration, resolve_model_configuration
+from campaign.config_freezer import (
+    freeze_configuration,
+    resolve_model_configuration,
+    resolve_dataset_provenance,
+)
 from campaign.artifacts import (
     get_artifact_directory,
     write_status,
@@ -23,7 +27,11 @@ from campaign.artifacts import (
     validate_result_schema,
     VALID_STATUSES,
 )
-from campaign.runner import CampaignRunner, check_dataset_availability
+from campaign.runner import (
+    CampaignRunner,
+    check_dataset_availability,
+    check_provenance_compatibility,
+)
 
 __all__ = [
     "RunSpecification",
@@ -31,6 +39,7 @@ __all__ = [
     "CampaignEnumerator",
     "freeze_configuration",
     "resolve_model_configuration",
+    "resolve_dataset_provenance",
     "get_artifact_directory",
     "write_status",
     "read_status",
@@ -40,6 +49,7 @@ __all__ = [
     "VALID_STATUSES",
     "CampaignRunner",
     "check_dataset_availability",
+    "check_provenance_compatibility",
     "CANONICAL_20_SEEDS",
     "CANONICAL_10_SEEDS",
     "CANONICAL_3_SEEDS",

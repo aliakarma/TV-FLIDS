@@ -413,3 +413,218 @@ class TestArtifactSchema:
             "final_attack_success_rate": 0.03,
         }
         assert validate_result_schema(invalid_type) is False
+
+
+# ── 9. Provenance-Safe Resume & Cache Reuse Tests ─────────────────────────────
+
+class TestProvenanceSafeResume:
+
+    def test_completed_run_same_commit_allowed(self):
+        """1. completed run + same commit -> cached reuse allowed."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spec = RunSpecification(block="B2", purpose="Test", dataset="nslkdd", strategy="tvflids", seed=42)
+            out_dir = get_artifact_directory(spec, base_dir=tmpdir)
+
+            # Freeze config and record completed status & metrics
+            freeze_configuration(spec, out_dir, allow_dirty=True)
+            write_status(out_dir, status="COMPLETED")
+            write_metrics(out_dir, {
+                "final_accuracy": 0.91,
+                "final_f1_macro": 0.89,
+                "final_attack_success_rate": 0.02,
+            })
+
+            # Read frozen commit
+            with open(os.path.join(out_dir, "config.json"), "r") as f:
+                stored_cfg = json.load(f)
+            stored_commit = stored_cfg["git_provenance"]["git_commit"]
+            stored_dataset_prov = stored_cfg["dataset_provenance"]
+
+            # Run with runner configured with matching commit and dataset provenance
+            runner = CampaignRunner(
+                base_results_dir=tmpdir,
+                allow_dirty=True,
+                current_git={"git_commit": stored_commit, "git_dirty": False},
+                current_dataset_prov=stored_dataset_prov,
+            )
+
+            res = runner.execute_run(spec, dry_run=False, verbose=False)
+            assert res["status"] == "COMPLETED"
+            assert res.get("resumed") is True
+            assert res["metrics"]["final_accuracy"] == 0.91
+
+    def test_completed_run_different_commit_rejected(self):
+        """2. completed run + different commit -> cached reuse rejected with explicit error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spec = RunSpecification(block="B2", purpose="Test", dataset="nslkdd", strategy="tvflids", seed=42)
+            out_dir = get_artifact_directory(spec, base_dir=tmpdir)
+
+            freeze_configuration(spec, out_dir, allow_dirty=True)
+            write_status(out_dir, status="COMPLETED")
+            write_metrics(out_dir, {
+                "final_accuracy": 0.91,
+                "final_f1_macro": 0.89,
+                "final_attack_success_rate": 0.02,
+            })
+
+            # Manually set stored commit to C1
+            cfg_path = os.path.join(out_dir, "config.json")
+            with open(cfg_path, "r") as f:
+                cfg = json.load(f)
+            cfg["git_provenance"]["git_commit"] = "commit_C1_hash"
+            with open(cfg_path, "w") as f:
+                json.dump(cfg, f)
+
+            # Runner is at commit C2
+            runner = CampaignRunner(
+                base_results_dir=tmpdir,
+                allow_dirty=True,
+                current_git={"git_commit": "commit_C2_hash", "git_dirty": False},
+                current_dataset_prov=cfg["dataset_provenance"],
+            )
+
+            with pytest.raises(RuntimeError) as exc_info:
+                runner.execute_run(spec, dry_run=False, verbose=False)
+
+            err_msg = str(exc_info.value)
+            assert f"Completed artifact exists for run_id={spec.run_id}, but provenance differs:" in err_msg
+            assert "stored_commit=commit_C1_hash" in err_msg
+            assert "current_commit=commit_C2_hash" in err_msg
+            assert "Refusing cached-result reuse." in err_msg
+
+    def test_completed_run_different_dataset_provenance_rejected(self):
+        """3. completed run + same commit + different dataset provenance -> cached reuse rejected."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spec = RunSpecification(block="B2", purpose="Test", dataset="nslkdd", strategy="tvflids", seed=42)
+            out_dir = get_artifact_directory(spec, base_dir=tmpdir)
+
+            freeze_configuration(spec, out_dir, allow_dirty=True)
+            write_status(out_dir, status="COMPLETED")
+            write_metrics(out_dir, {
+                "final_accuracy": 0.91,
+                "final_f1_macro": 0.89,
+                "final_attack_success_rate": 0.02,
+            })
+
+            # Config has dataset_provenance version v1
+            cfg_path = os.path.join(out_dir, "config.json")
+            with open(cfg_path, "r") as f:
+                cfg = json.load(f)
+            commit = cfg["git_provenance"]["git_commit"]
+            cfg["dataset_provenance"]["raw_files"]["train_hash"] = "hash_v1"
+            with open(cfg_path, "w") as f:
+                json.dump(cfg, f)
+
+            # Current environment has dataset_provenance version v2
+            different_dataset_prov = dict(cfg["dataset_provenance"])
+            different_dataset_prov["raw_files"] = dict(cfg["dataset_provenance"]["raw_files"])
+            different_dataset_prov["raw_files"]["train_hash"] = "hash_v2_altered"
+
+            runner = CampaignRunner(
+                base_results_dir=tmpdir,
+                allow_dirty=True,
+                current_git={"git_commit": commit, "git_dirty": False},
+                current_dataset_prov=different_dataset_prov,
+            )
+
+            with pytest.raises(RuntimeError) as exc_info:
+                runner.execute_run(spec, dry_run=False, verbose=False)
+
+            err_msg = str(exc_info.value)
+            assert "dataset provenance differs" in err_msg
+            assert "Refusing cached-result reuse." in err_msg
+
+    def test_completed_run_mismatched_scientific_configuration_rejected(self):
+        """4. completed run + mismatched scientific configuration -> cached reuse rejected."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spec = RunSpecification(block="B2", purpose="Test", dataset="nslkdd", strategy="tvflids", seed=42)
+            out_dir = get_artifact_directory(spec, base_dir=tmpdir)
+
+            freeze_configuration(spec, out_dir, allow_dirty=True)
+            write_status(out_dir, status="COMPLETED")
+            write_metrics(out_dir, {
+                "final_accuracy": 0.91,
+                "final_f1_macro": 0.89,
+                "final_attack_success_rate": 0.02,
+            })
+
+            # Alter scientific configuration in config.json while keeping run_id
+            cfg_path = os.path.join(out_dir, "config.json")
+            with open(cfg_path, "r") as f:
+                cfg = json.load(f)
+            cfg["scientific_configuration"]["num_rounds"] = 999
+            with open(cfg_path, "w") as f:
+                json.dump(cfg, f)
+
+            runner = CampaignRunner(base_results_dir=tmpdir, allow_dirty=True)
+
+            with pytest.raises(RuntimeError) as exc_info:
+                runner.execute_run(spec, dry_run=False, verbose=False)
+
+            err_msg = str(exc_info.value)
+            assert "scientific configuration differs" in err_msg
+            assert "Refusing cached-result reuse." in err_msg
+
+    def test_blocked_dataset_behavior_remains_unchanged(self):
+        """5. blocked dataset behavior remains unchanged."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner = CampaignRunner(base_results_dir=tmpdir, allow_dirty=True)
+            spec_cic = RunSpecification(block="B2", purpose="Test", dataset="ciciot2023", strategy="tvflids", seed=42)
+            out_dir_cic = get_artifact_directory(spec_cic, base_dir=tmpdir)
+
+            res_cic = runner.execute_run(spec_cic, dry_run=False, verbose=False)
+            assert res_cic["status"] == "BLOCKED"
+            assert read_status(out_dir_cic)["status"] == "BLOCKED"
+            assert read_metrics(out_dir_cic) is None
+
+            spec_edge = RunSpecification(block="B2", purpose="Test", dataset="edgeiiotset", strategy="tvflids", seed=42)
+            out_dir_edge = get_artifact_directory(spec_edge, base_dir=tmpdir)
+
+            res_edge = runner.execute_run(spec_edge, dry_run=False, verbose=False)
+            assert res_edge["status"] == "BLOCKED"
+            assert read_status(out_dir_edge)["status"] == "BLOCKED"
+            assert read_metrics(out_dir_edge) is None
+
+    def test_fresh_run_after_provenance_mismatch_produces_new_valid_artifact(self):
+        """6. fresh run after provenance mismatch produces a new valid artifact rather than silently reusing old one."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spec = RunSpecification(block="B2", purpose="Test", dataset="nslkdd", strategy="tvflids", seed=42)
+            out_dir = get_artifact_directory(spec, base_dir=tmpdir)
+
+            # Old artifact from commit C1
+            freeze_configuration(spec, out_dir, allow_dirty=True)
+            cfg_path = os.path.join(out_dir, "config.json")
+            with open(cfg_path, "r") as f:
+                cfg = json.load(f)
+            cfg["git_provenance"]["git_commit"] = "commit_C1_hash"
+            with open(cfg_path, "w") as f:
+                json.dump(cfg, f)
+            write_status(out_dir, status="COMPLETED")
+            write_metrics(out_dir, {
+                "final_accuracy": 0.50,
+                "final_f1_macro": 0.40,
+                "final_attack_success_rate": 0.60,
+            })
+
+            # Runner at commit C2
+            runner = CampaignRunner(
+                base_results_dir=tmpdir,
+                allow_dirty=True,
+                current_git={"git_commit": "commit_C2_hash", "git_dirty": False},
+                current_dataset_prov=cfg["dataset_provenance"],
+            )
+
+            # Normal execute_run refuses reuse
+            with pytest.raises(RuntimeError, match="provenance differs"):
+                runner.execute_run(spec, dry_run=False, verbose=False)
+
+            # Executing with force=True and dry_run=True overrides stale cache and writes fresh artifact
+            res = runner.execute_run(spec, dry_run=True, force=True, verbose=False)
+            assert res["status"] == "SKIPPED"
+            assert res["dry_run"] is True
+
+            # Verify that the artifact was updated to commit C2
+            with open(cfg_path, "r") as f:
+                updated_cfg = json.load(f)
+            assert updated_cfg["git_provenance"]["git_commit"] == "commit_C2_hash"
+            assert read_status(out_dir)["status"] == "SKIPPED"

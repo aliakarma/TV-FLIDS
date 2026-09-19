@@ -22,9 +22,65 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+import hashlib
 from campaign.run_spec import RunSpecification
 from utils.provenance import git_state, package_versions, hardware
 from models.mlp import IDSMLP
+
+
+def resolve_dataset_provenance(dataset: str) -> Dict[str, Any]:
+    """
+    Resolve dataset provenance including version, raw file hashes, and protocol.
+    Designed for extensibility with dataset version, raw-data hash, preprocessing
+    manifest hash, and dataset configuration hash.
+    """
+    if dataset == "nslkdd":
+        train_path = os.path.join(ROOT, "data", "raw", "KDDTrain+.txt")
+        test_path = os.path.join(ROOT, "data", "raw", "KDDTest+.txt")
+
+        raw_files: Dict[str, Any] = {}
+        if os.path.exists(train_path):
+            with open(train_path, "rb") as f:
+                raw_files["train_hash"] = hashlib.sha256(f.read()).hexdigest()
+            raw_files["train_size"] = os.path.getsize(train_path)
+            raw_files["train_path"] = "data/raw/KDDTrain+.txt"
+
+        if os.path.exists(test_path):
+            with open(test_path, "rb") as f:
+                raw_files["test_hash"] = hashlib.sha256(f.read()).hexdigest()
+            raw_files["test_size"] = os.path.getsize(test_path)
+            raw_files["test_path"] = "data/raw/KDDTest+.txt"
+
+        return {
+            "dataset_name": "nslkdd",
+            "dataset_version": "standard_nslkdd_125973_22544",
+            "protocol": "ieee_tifs_table1",
+            "raw_files": raw_files,
+            "status": "AVAILABLE" if ("train_hash" in raw_files and "test_hash" in raw_files) else "MISSING_RAW_FILES",
+        }
+
+    elif dataset == "ciciot2023":
+        return {
+            "dataset_name": "ciciot2023",
+            "dataset_version": "ciciot2023_8class_table_s5",
+            "protocol": "time_disjoint_80_20_guard_band",
+            "status": "BLOCKED",
+            "reason": "Raw multi-GB shards for CIC-IoT-2023 are not present on disk (Stage 8 BLOCKED state).",
+        }
+
+    elif dataset == "edgeiiotset":
+        return {
+            "dataset_name": "edgeiiotset",
+            "dataset_version": "edgeiiotset_6class_table_s5",
+            "protocol": "time_disjoint_80_20_guard_band",
+            "status": "BLOCKED",
+            "reason": "Raw multi-GB files for Edge-IIoTset are not present on disk (Stage 8 BLOCKED state).",
+        }
+
+    return {
+        "dataset_name": dataset,
+        "status": "UNKNOWN",
+    }
 
 
 def resolve_model_configuration(dataset: str) -> Dict[str, Any]:
@@ -56,6 +112,8 @@ def freeze_configuration(
     output_dir: str,
     allow_dirty: bool = False,
     extra_metadata: Optional[Dict[str, Any]] = None,
+    git_info: Optional[Dict[str, Any]] = None,
+    dataset_prov: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Resolve and freeze all scientific and provenance parameters for a run.
@@ -65,7 +123,8 @@ def freeze_configuration(
         RuntimeError: If the Git working tree is dirty and allow_dirty is False.
     """
     os.makedirs(output_dir, exist_ok=True)
-    git_info = git_state()
+    if git_info is None:
+        git_info = git_state()
 
     # Dirty tree protection
     if git_info.get("git_dirty", False) and not allow_dirty:
@@ -78,6 +137,8 @@ def freeze_configuration(
 
     scientific_config = spec.to_scientific_dict()
     model_config = resolve_model_configuration(spec.dataset)
+    if dataset_prov is None:
+        dataset_prov = resolve_dataset_provenance(spec.dataset)
 
     frozen_config = {
         "run_id": spec.run_id,
@@ -85,6 +146,7 @@ def freeze_configuration(
         "purpose": spec.purpose,
         "scientific_configuration": scientific_config,
         "model_configuration": model_config,
+        "dataset_provenance": dataset_prov,
         "git_provenance": git_info,
         "environment": {
             "python_version": sys.version.split()[0],
