@@ -156,6 +156,57 @@ class TestBuildPipeline:
         assert X_val.shape[0] == 50
         assert X_train.shape[1] == INPUT_DIM
 
+    def test_canonical_class_ordering(self):
+        """Verify canonical class ordering matches paper §VI-A and build_targets.py."""
+        expected = ["Benign", "DDoS", "DoS", "Mirai", "Recon", "Spoofing", "WebBased", "BruteForce"]
+        assert CLASS_NAMES == expected
+        assert len(CLASS_NAMES) == 8
+
+    def test_zero_leakage_scaling(self, synthetic_ciciot2023_files):
+        """Verify scaler is fitted ONLY on server data (D_val U D_tune), not test or client data."""
+        train_path, test_path = synthetic_ciciot2023_files
+        (X_train, y_train, X_val, y_val, X_test, y_test,
+         scaler, encoders, class_weights) = build_pipeline(
+            train_path, test_path, use_smote=False, seed=42, val_size=50,
+            protocol="leakage_free",
+        )
+        assert X_val.min() >= -1e-5
+        assert X_val.max() <= 1.0 + 1e-5
+        assert hasattr(scaler, "data_min_")
+        assert len(scaler.data_min_) == INPUT_DIM
+
+    def test_caps_enforcement(self):
+        """Verify caps are respected when dataset exceeds cap limits."""
+        from data.preprocessing.ciciot2023_pipeline import time_disjoint_split_ciciot2023, GUARD_BAND_SECONDS
+        tmpdir = tempfile.mkdtemp(prefix="ciciot2023_caps_")
+        train_path = os.path.join(tmpdir, "ciciot2023_cap_train.csv")
+        test_path = os.path.join(tmpdir, "ciciot2023_cap_test.csv")
+
+        df_train = _make_synthetic_ciciot2023_df(n_rows=200, seed=1)
+        df_test = _make_synthetic_ciciot2023_df(n_rows=100, seed=2)
+        df_train.to_csv(train_path, index=False)
+        df_test.to_csv(test_path, index=False)
+
+        (X_tr, y_tr, X_v, y_v, X_te, y_te, *_) = build_pipeline(
+            train_path, test_path, use_smote=False, seed=42, val_size=20,
+            cap_train=100, cap_test=50,
+        )
+        assert len(X_tr) + len(X_v) <= 100
+        assert len(X_te) <= 50
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_time_disjoint_split_and_guard_band(self):
+        """Verify time-disjoint split logic enforces 60s guard band."""
+        from data.preprocessing.ciciot2023_pipeline import time_disjoint_split_ciciot2023, GUARD_BAND_SECONDS
+        df = _make_synthetic_ciciot2023_df(n_rows=500, seed=42)
+        # Add timestamps
+        timestamps = 1600000000.0 + np.cumsum(np.random.exponential(scale=1.0, size=len(df)))
+        df["timestamp"] = timestamps
+        train_df, test_df = time_disjoint_split_ciciot2023(
+            df, train_ratio=0.8, guard_band_seconds=GUARD_BAND_SECONDS, timestamp_col="timestamp"
+        )
+        assert test_df["timestamp"].min() - train_df["timestamp"].max() >= GUARD_BAND_SECONDS
+
     def test_model_forward_pass_on_test_set(self, synthetic_ciciot2023_files):
         train_path, test_path = synthetic_ciciot2023_files
         (_, _, _, _, X_test, y_test, *_rest) = build_pipeline(
@@ -229,6 +280,73 @@ class TestSetupDataIntegration:
             os.chdir(cwd_before)
             with open(config_path, "w") as f:
                 f.write(original_config_text)
+
+    def test_canonical_34_label_taxonomy(self):
+        """
+        Verify canonical CIC-IoT-2023 taxonomy (Neto et al., Sensors 2023):
+        Exactly 33 raw attacks + 1 Benign = 34 canonical labels mapped to 8 classes.
+        Specifically tests VulnerabilityScan mapping to Recon (Class 4).
+        """
+        from data.preprocessing.ciciot2023_pipeline import (
+            CANONICAL_RAW_ATTACKS,
+            CANONICAL_RAW_MAP,
+            map_labels,
+        )
+
+        assert len(CANONICAL_RAW_ATTACKS) == 34, (
+            f"Expected exactly 34 canonical labels (33 attacks + BenignTraffic), got {len(CANONICAL_RAW_ATTACKS)}"
+        )
+        assert CANONICAL_RAW_ATTACKS[0] == "BenignTraffic"
+        raw_attacks = [a for a in CANONICAL_RAW_ATTACKS if a != "BenignTraffic"]
+        assert len(raw_attacks) == 33, f"Expected exactly 33 raw attacks, got {len(raw_attacks)}"
+
+        # Verify grouping across 8 classes
+        class_counts = {cid: 0 for cid in range(NUM_CLASSES)}
+        for label in CANONICAL_RAW_ATTACKS:
+            cid = CANONICAL_RAW_MAP[label]
+            class_counts[cid] += 1
+
+        assert class_counts[0] == 1, "Benign must contain exactly 1 raw label ('BenignTraffic')"
+        assert class_counts[1] == 12, "DDoS must contain exactly 12 raw attacks"
+        assert class_counts[2] == 4, "DoS must contain exactly 4 raw attacks"
+        assert class_counts[3] == 3, "Mirai must contain exactly 3 raw attacks"
+        assert class_counts[4] == 5, "Recon must contain exactly 5 raw attacks (including VulnerabilityScan)"
+        assert class_counts[5] == 2, "Spoofing must contain exactly 2 raw attacks"
+        assert class_counts[6] == 6, "WebBased must contain exactly 6 raw attacks"
+        assert class_counts[7] == 1, "BruteForce must contain exactly 1 raw attack"
+
+        # Specific test for VulnerabilityScan
+        assert CANONICAL_RAW_MAP["VulnerabilityScan"] == 4, "VulnerabilityScan must map to Class 4 (Recon)"
+
+        # Test map_labels on all canonical labels
+        df_canonical = pd.DataFrame({"label": CANONICAL_RAW_ATTACKS})
+        df_mapped = map_labels(df_canonical)
+        assert len(df_mapped) == 34
+        assert list(df_mapped["label"]) == [CANONICAL_RAW_MAP[a] for a in CANONICAL_RAW_ATTACKS]
+
+    def test_validation_quota_construction(self):
+        """
+        Verify CIC-IoT-2023 validation quota construction matches Table S5 caps and NSL-KDD rules:
+        Classes 6 & 7 (< 5,000) receive 100 each; remaining 1,800 distributed proportionally.
+        """
+        from data.preprocessing.ciciot2023_pipeline import (
+            PAPER_TRAIN_CAPS,
+            PAPER_VAL_QUOTAS,
+            compute_ciciot2023_quotas,
+        )
+
+        val_quotas, tune_quotas, client_quotas = compute_ciciot2023_quotas(
+            PAPER_TRAIN_CAPS, val_size=2000, tune_fraction=0.1
+        )
+        assert sum(val_quotas.values()) == 2000
+        for c in range(NUM_CLASSES):
+            assert val_quotas[c] == PAPER_VAL_QUOTAS[c], (
+                f"Class {c}: expected {PAPER_VAL_QUOTAS[c]}, got {val_quotas[c]}"
+            )
+            assert tune_quotas[c] > 0
+            assert client_quotas[c] > 0
+            assert val_quotas[c] + tune_quotas[c] + client_quotas[c] == PAPER_TRAIN_CAPS[c]
+
 
 
 if __name__ == "__main__":

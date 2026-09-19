@@ -245,7 +245,7 @@ if __name__ == "__main__":
     parser.add_argument("--config",     default="config/fl_config.yaml")
     parser.add_argument("--output",     default="results/tables")
     parser.add_argument("--dataset",    default="nslkdd",
-                        choices=["nslkdd", "unswnb15", "ciciot2023"])
+                        choices=["nslkdd", "unswnb15", "ciciot2023", "edgeiiotset"])
     parser.add_argument("--protocol",   default="main",
                         choices=["main", "leakage_free"],
                         help="'main' = paper Table V; 'leakage_free' = paper "

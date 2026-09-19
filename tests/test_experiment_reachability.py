@@ -121,8 +121,9 @@ class TestLeakageFreeProtocol:
 
     def test_per_client_smote_covers_both_supported_datasets(self):
         """Regression: this was gated on nslkdd only, so CIC-IoT-2023 silently
-        skipped the per-client SMOTE the protocol requires."""
-        assert 'dataset in ("nslkdd", "ciciot2023")' in \
+        skipped the per-client SMOTE the protocol requires. Now covers nslkdd,
+        ciciot2023, and edgeiiotset."""
+        assert 'dataset in ("nslkdd", "ciciot2023", "edgeiiotset")' in \
             src("experiments.run_experiment")
 
     def test_comparison_runner_exposes_protocol(self):

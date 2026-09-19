@@ -1,29 +1,24 @@
 """
-data/preprocessing/ciciot2023_pipeline.py
-CIC-IoT-2023 dataset preprocessing pipeline.
+data/preprocessing/edgeiiotset_pipeline.py
+Edge-IIoTset dataset preprocessing pipeline.
 
-Reference: Neto, E.C.P. et al. (2023), "CICIoT2023: A Real-Time Dataset and
-Benchmark for Large-Scale Attacks in IoT Environment", Sensors 23(13):5941.
-Used in the IEEE TIFS paper (§VI-A, §VI-B, Table I, and Supplementary §S5).
-
-Implements the exact IEEE TIFS paper protocol:
-- Feature dimension: d = 46 numeric flow-feature columns.
+Implements the exact IEEE TIFS paper protocol (§VI-A, §VI-B, and Supplementary §S5):
+- Feature dimension: d = 61 numeric flow/protocol features.
 - Model parameter count closed-form:
-    P(46, 8) = 256(46) + 65(8) + 42,304 = 11,776 + 520 + 42,304 = 54,600 parameters.
-- Attack taxonomy: 8 classes in canonical paper/target order:
-    0: Benign
-    1: DDoS
-    2: DoS
-    3: Mirai
-    4: Recon
-    5: Spoofing
-    6: WebBased (Web-based, rare class 1)
-    7: BruteForce (Brute force, rare class 2)
-- Time-disjoint split: Each source capture is ordered by timestamp.
+    P(61, 6) = 256(61) + 65(6) + 42,304 = 15,616 + 390 + 42,304 = 58,310 parameters.
+- Attack taxonomy: 6 classes (Normal: 0, DoS/DDoS: 1, Injection: 2, Scanning: 3, Malware: 4, MITM: 5).
+- Fine-grained to 6-class mapping:
+    Normal -> 0
+    DDoS_UDP, DDoS_ICMP, DDoS_HTTP, DDoS_TCP, DoS_UDP, DoS_ICMP, DoS_HTTP, DoS_TCP -> 1 (DoS/DDoS)
+    SQL_injection, XSS, Uploading -> 2 (Injection)
+    Port_Scanning, Vulnerability_scanner, Fingerprinting -> 3 (Scanning)
+    Backdoor, Password, Ransomware -> 4 (Malware)
+    MITM -> 5 (MITM, rarest class per paper §VI-A and Supplementary §S5)
+- Time-disjoint split: Each source capture or per-attack/per-sensor file is ordered by timestamp.
   First 80% to training side, last 20% to test side, records within 60 seconds of boundary dropped.
 - Per-class caps (Table S5):
-    Train: Benign 30k, DDoS 40k, DoS 30k, Mirai 25k, Recon 12k, Spoofing 9k, WebBased 2.4k, BruteForce 1.6k (Total 150k).
-    Test: Benign 6k, DDoS 8k, DoS 6k, Mirai 5k, Recon 2.4k, Spoofing 1.8k, WebBased 480, BruteForce 320 (Total 30k).
+    Train: Normal 45k, DoS/DDoS 40k, Injection 25k, Scanning 20k, Malware 15k, MITM 5k (Total 150k).
+    Test: Normal 9k, DoS/DDoS 8k, Injection 5k, Scanning 4k, Malware 3k, MITM 1k (Total 30k).
     Caps applied as min(available, cap).
 - Server sets:
     D_val (2,000 records) extracted following NSL-KDD rules.
@@ -49,190 +44,203 @@ try:
 except ImportError:
     _SMOTE_AVAILABLE = False
 
-# ── 46 Canonical Flow-Feature Columns ──────────────────────────────────────
+# ── 61 Canonical Feature Columns ───────────────────────────────────────────
 
 FEATURE_COLUMNS = [
-    "flow_duration", "Header_Length", "Protocol Type", "Duration",
-    "Rate", "Srate", "Drate",
-    "fin_flag_number", "syn_flag_number", "rst_flag_number",
-    "psh_flag_number", "ack_flag_number", "ece_flag_number", "cwr_flag_number",
-    "ack_count", "syn_count", "fin_count", "urg_count", "rst_count",
-    "HTTP", "HTTPS", "DNS", "Telnet", "SMTP", "SSH", "IRC",
-    "TCP", "UDP", "DHCP", "ARP", "ICMP", "IPv", "LLC",
-    "Tot sum", "Min", "Max", "AVG", "Std", "Tot size", "IAT", "Number",
-    "Magnitue", "Radius", "Covariance", "Variance", "Weight",
+    "arp.opcode", "arp.hw.size", "arp.proto.size",
+    "icmp.checksum", "icmp.seq_le", "icmp.unused",
+    "http.response", "http.tls_port", "http.content_length",
+    "dns.qry.name.len", "dns.qry.qu.class", "dns.qry.type",
+    "dns.retransmission", "dns.retransmit_request", "dns.retransmit_response",
+    "mqtt.conack.flags", "mqtt.conflag.cleansess", "mqtt.conflags",
+    "mqtt.hdrflags", "mqtt.len", "mqtt.msg_decoded_as", "mqtt.msgtype",
+    "mqtt.proto_len", "mqtt.protoname", "mqtt.topic", "mqtt.topic_len", "mqtt.ver",
+    "mbtcp.len", "mbtcp.trans_id", "mbtcp.proto_id", "mbtcp.unit_id",
+    "tcp.ack", "tcp.ack_raw", "tcp.checksum",
+    "tcp.connection.fin", "tcp.connection.rst", "tcp.connection.syn", "tcp.connection.synack",
+    "tcp.flags", "tcp.flags.ack", "tcp.len", "tcp.seq",
+    "udp.stream", "udp.time_delta",
+    "http.request.method", "http.referer", "http.request.version",
+    "tcp.flags.cwr", "tcp.flags.ece", "tcp.flags.fin", "tcp.flags.push",
+    "tcp.flags.res", "tcp.flags.reset", "tcp.flags.syn", "tcp.flags.urg",
+    "tcp.hdr_len", "tcp.urgent_pointer", "tcp.window_size",
+    "tcp.window_size_scalefactor", "tcp.window_size_value",
+    "udp.length",
 ]
 
 LABEL_COL = "label"
-INPUT_DIM = len(FEATURE_COLUMNS)  # 46
-NUM_CLASSES = 8
+INPUT_DIM = len(FEATURE_COLUMNS)  # 61
+NUM_CLASSES = 6
 
-# Canonical 8-class taxonomy matching Paper §VI-A and build_targets.py
+CLASS_NAMES = ["Normal", "DoS/DDoS", "Injection", "Scanning", "Malware", "MITM"]
 CATEGORY_TO_ID = {
-    "Benign": 0,
-    "DDoS": 1,
-    "DoS": 2,
-    "Mirai": 3,
-    "Recon": 4,
-    "Spoofing": 5,
-    "WebBased": 6,
-    "BruteForce": 7,
+    "Normal": 0,
+    "DoS/DDoS": 1,
+    "Injection": 2,
+    "Scanning": 3,
+    "Malware": 4,
+    "MITM": 5,
 }
 
-CLASS_NAMES = [
-    "Benign", "DDoS", "DoS", "Mirai", "Recon",
-    "Spoofing", "WebBased", "BruteForce",
-]
-
-# ── Canonical 33 Raw Attacks + Benign = 34 Raw Labels ──────────────────────
-# Reference: Neto, E.C.P. et al. (2023), "CICIoT2023: A Real-Time Dataset and
-# Benchmark for Large-Scale Attacks in IoT Environment", Sensors 23(13):5941.
-# The official label column contains 33 attack types plus BenignTraffic (34 total).
+# ── Canonical 14 Raw Attacks + Normal = 15 Multiclass Labels ───────────────
+# Reference: Ferrag, M. A. et al. (2022), "Edge-IIoTset: A New Comprehensive
+# Realistic Cyber Security Dataset for IoT and IIoT Applications", IEEE Access 10:46790-46806.
+# The multiclass Attack_type column contains exactly 14 attack types + Normal = 15 classes.
 CANONICAL_RAW_ATTACKS = [
-    # 0: Benign (1)
-    "BenignTraffic",
-    # 1: DDoS (12)
-    "DDoS-ACK_Fragmentation", "DDoS-HTTP_Flood", "DDoS-ICMP_Flood",
-    "DDoS-ICMP_Fragmentation", "DDoS-PSHACK_Flood", "DDoS-RSTFINFlood",
-    "DDoS-SlowLoris", "DDoS-SYN_Flood", "DDoS-SynonymousIP_Flood",
-    "DDoS-TCP_Flood", "DDoS-UDP_Flood", "DDoS-UDP_Fragmentation",
-    # 2: DoS (4)
-    "DoS-HTTP_Flood", "DoS-SYN_Flood", "DoS-TCP_Flood", "DoS-UDP_Flood",
-    # 3: Mirai (3)
-    "Mirai-greeth_flood", "Mirai-greip_flood", "Mirai-udpplain",
-    # 4: Recon (5)
-    "Recon-HostDiscovery", "Recon-OSScan", "Recon-PingSweep",
-    "Recon-PortScan", "VulnerabilityScan",
-    # 5: Spoofing (2)
-    "DNS_Spoofing", "MITM-ArpSpoofing",
-    # 6: WebBased (6) - Rare class 1 (Table S5 cap: 2,400 train / 480 test)
-    "Backdoor_Malware", "BrowserHijacking", "CommandInjection",
-    "SqlInjection", "Uploading_Attack", "XSS",
-    # 7: BruteForce (1) - Rare class 2 (Table S5 cap: 1,600 train / 320 test)
-    "DictionaryBruteForce",
+    # 0: Normal
+    "Normal",
+    # 1: DoS/DDoS (4 attacks)
+    "DDoS_UDP", "DDoS_ICMP", "DDoS_HTTP", "DDoS_TCP",
+    # 2: Injection (3 attacks)
+    "SQL_injection", "XSS", "Uploading",
+    # 3: Scanning (3 attacks)
+    "Port_Scanning", "Vulnerability_scanner", "Fingerprinting",
+    # 4: Malware (3 attacks)
+    "Backdoor", "Password", "Ransomware",
+    # 5: MITM (1 attack)
+    "MITM",
 ]
 
-# Canonical 34-label mapping to the 8 final classes
+# Canonical 15-class mapping to the 6 final classes (§VI-A, line 350)
 CANONICAL_RAW_MAP = {
-    # 0: Benign
-    "BenignTraffic": 0,
-    # 1: DDoS (12)
-    "DDoS-ACK_Fragmentation": 1, "DDoS-HTTP_Flood": 1, "DDoS-ICMP_Flood": 1,
-    "DDoS-ICMP_Fragmentation": 1, "DDoS-PSHACK_Flood": 1, "DDoS-RSTFINFlood": 1,
-    "DDoS-SlowLoris": 1, "DDoS-SYN_Flood": 1, "DDoS-SynonymousIP_Flood": 1,
-    "DDoS-TCP_Flood": 1, "DDoS-UDP_Flood": 1, "DDoS-UDP_Fragmentation": 1,
-    # 2: DoS (4)
-    "DoS-HTTP_Flood": 2, "DoS-SYN_Flood": 2, "DoS-TCP_Flood": 2, "DoS-UDP_Flood": 2,
-    # 3: Mirai (3)
-    "Mirai-greeth_flood": 3, "Mirai-greip_flood": 3, "Mirai-udpplain": 3,
-    # 4: Recon (5)
-    "Recon-HostDiscovery": 4, "Recon-OSScan": 4, "Recon-PingSweep": 4,
-    "Recon-PortScan": 4, "VulnerabilityScan": 4,
-    # 5: Spoofing (2)
-    "DNS_Spoofing": 5, "MITM-ArpSpoofing": 5,
-    # 6: WebBased (6)
-    "Backdoor_Malware": 6, "BrowserHijacking": 6, "CommandInjection": 6,
-    "SqlInjection": 6, "Uploading_Attack": 6, "XSS": 6,
-    # 7: BruteForce (1)
-    "DictionaryBruteForce": 7,
+    # 0: Normal
+    "Normal": 0,
+    # 1: DoS/DDoS (4 attacks)
+    "DDoS_UDP": 1,
+    "DDoS_ICMP": 1,
+    "DDoS_HTTP": 1,
+    "DDoS_TCP": 1,
+    # 2: Injection (3 attacks)
+    "SQL_injection": 2,
+    "XSS": 2,
+    "Uploading": 2,
+    # 3: Scanning (3 attacks)
+    "Port_Scanning": 3,
+    "Vulnerability_scanner": 3,
+    "Fingerprinting": 3,
+    # 4: Malware (3 attacks)
+    "Backdoor": 4,
+    "Password": 4,
+    "Ransomware": 4,
+    # 5: MITM (1 attack)
+    "MITM": 5,
 }
 
-# Keyword -> category mapping for fallback matching
-_CATEGORY_KEYWORD_PRIORITY = [
-    ("benigntraffic", "Benign"),
-    ("benign", "Benign"),
-    ("ddos", "DDoS"),
-    ("dos", "DoS"),
-    ("mirai", "Mirai"),
-    ("vulnerabilityscan", "Recon"),
-    ("pingsweep", "Recon"),
-    ("hostdiscovery", "Recon"),
-    ("osscan", "Recon"),
-    ("portscan", "Recon"),
-    ("recon", "Recon"),
-    ("mitm", "Spoofing"),
-    ("arpspoof", "Spoofing"),
-    ("dnsspoof", "Spoofing"),
-    ("spoofing", "Spoofing"),
-    ("bruteforce", "BruteForce"),
-    ("dictionarybrute", "BruteForce"),
-    ("sqlinjection", "WebBased"),
-    ("commandinjection", "WebBased"),
-    ("backdoormalware", "WebBased"),
-    ("uploadingattack", "WebBased"),
-    ("xss", "WebBased"),
-    ("browserhijacking", "WebBased"),
-    ("webbased", "WebBased"),
-]
+# Supported aliases for normalized string parsing.
+# - 'os_fingerprinting': alias for 'Fingerprinting' used in some subsets.
+# - 'arp_spoofing': underlying protocol mechanism for 'MITM'.
+# Note: 'dns_spoofing' is from CIC-IoT-2023 and is intentionally NOT supported here.
+RAW_ATTACK_ALIASES = {
+    "os_fingerprinting": 3,
+    "osfingerprinting": 3,
+    "arp_spoofing": 5,
+    "arpspoofing": 5,
+    # Coarse family names supported as fallbacks
+    "normal": 0,
+    "ddos": 1,
+    "dos": 1,
+    "injection": 2,
+    "scanning": 3,
+    "information_gathering": 3,
+    "informationgathering": 3,
+    "malware": 4,
+    "mitm": 5,
+}
+
+def _normalize_string(val: Any) -> str:
+    s = str(val).strip().lower()
+    for ch in (" ", "-", "_", "/"):
+        s = s.replace(ch, "")
+    return s
+
+_normalize_label = _normalize_string
+
+# Complete normalized lookup dictionary
+RAW_ATTACK_MAP = {
+    _normalize_string(k): cid for k, cid in CANONICAL_RAW_MAP.items()
+}
+for k, cid in RAW_ATTACK_ALIASES.items():
+    RAW_ATTACK_MAP[_normalize_string(k)] = cid
 
 # Supplementary Table S5 Per-Class Caps (Train / Test)
 PAPER_TRAIN_CAPS = {
-    0: 30000,  # Benign
-    1: 40000,  # DDoS
-    2: 30000,  # DoS
-    3: 25000,  # Mirai
-    4: 12000,  # Recon
-    5: 9000,   # Spoofing
-    6: 2400,   # WebBased (rare class 1)
-    7: 1600,   # BruteForce (rare class 2)
+    0: 45000,  # Normal
+    1: 40000,  # DoS/DDoS
+    2: 25000,  # Injection
+    3: 20000,  # Scanning
+    4: 15000,  # Malware
+    5: 5000,   # MITM
 }
 
 PAPER_TEST_CAPS = {
-    0: 6000,   # Benign
-    1: 8000,   # DDoS
-    2: 6000,   # DoS
-    3: 5000,   # Mirai
-    4: 2400,   # Recon
-    5: 1800,   # Spoofing
-    6: 480,    # WebBased
-    7: 320,    # BruteForce
+    0: 9000,   # Normal
+    1: 8000,   # DoS/DDoS
+    2: 5000,   # Injection
+    3: 4000,   # Scanning
+    4: 3000,   # Malware
+    5: 1000,   # MITM
 }
 
 # Canonical validation quotas for Table S5 capped training set (2,000 samples total)
-# Classes 6 & 7 have < 5,000 records, receiving 100 each per §VI-A NSL-KDD rules.
-# Remaining 1,800 records distributed proportionally among classes 0..5 (total 146,000).
 PAPER_VAL_QUOTAS = {
-    0: 370,  # Benign (30k / 146k * 1800 = 369.86 -> 370)
-    1: 493,  # DDoS (40k / 146k * 1800 = 493.15 -> 493)
-    2: 370,  # DoS (30k / 146k * 1800 = 369.86 -> 370)
-    3: 308,  # Mirai (25k / 146k * 1800 = 308.22 -> 308)
-    4: 148,  # Recon (12k / 146k * 1800 = 147.95 -> 148)
-    5: 111,  # Spoofing (9k / 146k * 1800 = 110.96 -> 111)
-    6: 100,  # WebBased (< 5,000: max(prop=32, 100) = 100)
-    7: 100,  # BruteForce (< 5,000: max(prop=21, 100) = 100)
+    0: 600,  # Normal (45k / 150k * 2000)
+    1: 533,  # DoS/DDoS (40k / 150k * 2000)
+    2: 333,  # Injection (25k / 150k * 2000)
+    3: 267,  # Scanning (20k / 150k * 2000)
+    4: 200,  # Malware (15k / 150k * 2000)
+    5: 67,   # MITM (5k / 150k * 2000)
 }
 
+# Compatibility aliases
+RAW_ATTACK_MAPPING = RAW_ATTACK_MAP
+CANONICAL_CLASSES = CLASS_NAMES
+CAP_TRAIN = PAPER_TRAIN_CAPS
+CAP_TEST = PAPER_TEST_CAPS
+TIMESTAMP_COL = "frame.time"
+GUARD_BAND_SECONDS = 60.0
 
-# ── Time-Disjoint Splitting with Guard Band ─────────────────────────────────
 
 # ── Time-Disjoint Splitting with Guard Band ─────────────────────────────────
 
 def time_disjoint_split_with_guard_band(
     df: pd.DataFrame,
-    timestamp_col: str = "timestamp",
+    timestamp_col: str = "frame.time",
     split_ratio: float = 0.8,
     guard_band_seconds: float = 60.0,
     train_ratio: Optional[float] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Split a capture in time order per paper §VI-A:
+    Split a capture or per-attack/per-sensor file in time order per paper §VI-A:
     "We therefore split each source capture in time order: its first 80% of records
     feed the training pool and its last 20% the test set, and records within 60 seconds
     of the boundary are dropped."
+
+    Args:
+        df: Input dataframe containing records from a single capture/file.
+        timestamp_col: Name of the timestamp column.
+        split_ratio: Fraction for training side (default 0.8).
+        guard_band_seconds: Window around split boundary to drop (default 60.0s).
+        train_ratio: Alias for split_ratio.
+
+    Returns:
+        (train_df, test_df) tuple with boundary records removed.
     """
     if train_ratio is not None:
         split_ratio = train_ratio
 
     if timestamp_col not in df.columns:
+        # If timestamp not present, deterministic index-based 80/20 split
         n = len(df)
         split_idx = int(round(n * split_ratio))
         return df.iloc[:split_idx].copy().reset_index(drop=True), df.iloc[split_idx:].copy().reset_index(drop=True)
 
+    # Convert timestamps to numeric seconds
     if pd.api.types.is_numeric_dtype(df[timestamp_col]):
         ts_sec = pd.to_numeric(df[timestamp_col], errors="coerce")
     else:
         ts = pd.to_datetime(df[timestamp_col], errors="coerce")
         if ts.isna().all():
+            # Try direct numeric
             ts_sec = pd.to_numeric(df[timestamp_col], errors="coerce")
         else:
             ts_sec = ts.astype("int64") / 1e9
@@ -258,8 +266,7 @@ def time_disjoint_split_with_guard_band(
     return train_df, test_df
 
 
-time_disjoint_split_ciciot2023 = time_disjoint_split_with_guard_band
-GUARD_BAND_SECONDS = 60.0
+time_disjoint_split_edgeiiotset = time_disjoint_split_with_guard_band
 
 
 # ── Per-Class Capping ───────────────────────────────────────────────────────
@@ -294,85 +301,41 @@ def apply_class_caps(
 
 # ── Label Mapping ───────────────────────────────────────────────────────────
 
-def _normalize_label(raw: Any) -> str:
-    s = str(raw).strip().lower()
-    for ch in (" ", "-", "_", "/"):
-        s = s.replace(ch, "")
-    return s
-
-
-def _categorize(normalized_label: str) -> int:
-    for keyword, category in _CATEGORY_KEYWORD_PRIORITY:
-        if keyword in normalized_label:
-            return CATEGORY_TO_ID[category]
-    return -1
-
-
-def map_labels(df: pd.DataFrame) -> pd.DataFrame:
+def map_labels(df: pd.DataFrame, raw_label_col: str = "Attack_type") -> pd.DataFrame:
     """
-    Map raw fine-grained label strings to the 8-class taxonomy defined by CATEGORY_TO_ID.
+    Map fine-grained raw attack names to 6-class integer taxonomy (0..5).
     """
     df = df.copy()
-    if LABEL_COL not in df.columns:
-        raise ValueError(f"'{LABEL_COL}' column not found in dataframe.")
+    col = raw_label_col if raw_label_col in df.columns else LABEL_COL
+    if col not in df.columns:
+        raise ValueError(f"Neither '{raw_label_col}' nor '{LABEL_COL}' found in columns.")
 
-    # Check if already integer IDs
-    if pd.api.types.is_numeric_dtype(df[LABEL_COL]):
-        valid_mask = (df[LABEL_COL] >= 0) & (df[LABEL_COL] < NUM_CLASSES)
-        df = df[valid_mask].copy()
-        df[LABEL_COL] = df[LABEL_COL].astype(int)
-        return df.reset_index(drop=True)
-
-    def _resolve(raw: Any) -> int:
-        if raw in CANONICAL_RAW_MAP:
-            return CANONICAL_RAW_MAP[raw]
-        norm = _normalize_label(raw)
-        for k, cid in CANONICAL_RAW_MAP.items():
-            if _normalize_label(k) == norm:
+    def _resolve(val: Any) -> int:
+        if isinstance(val, (int, np.integer)):
+            if 0 <= val < NUM_CLASSES:
+                return int(val)
+        s = _normalize_string(val)
+        # 1. Direct exact normalized match
+        if s in RAW_ATTACK_MAP:
+            return RAW_ATTACK_MAP[s]
+        # 2. Substring fallback match
+        for k, cid in RAW_ATTACK_MAP.items():
+            if k == s or k in s:
                 return cid
-        return _categorize(norm)
+        return -1
 
     n_before = len(df)
-    df[LABEL_COL] = df[LABEL_COL].apply(_resolve).astype(int)
+    df[LABEL_COL] = df[col].apply(_resolve)
     df = df[df[LABEL_COL] >= 0].reset_index(drop=True)
     n_dropped = n_before - len(df)
     if n_dropped > 0:
-        print(f"[CIC-IoT-2023] Dropped {n_dropped} row(s) with unrecognized labels.")
+        print(f"[Edge-IIoTset] Dropped {n_dropped} row(s) with unrecognized labels.")
     return df
-
-
-# ── Load ────────────────────────────────────────────────────────────────────
-
-def load_ciciot2023(train_path: str, test_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Load raw CIC-IoT-2023 train/test CSV files."""
-    if not os.path.exists(train_path):
-        raise FileNotFoundError(
-            f"CIC-IoT-2023 training file not found: {train_path}\n"
-            "Download the official per-scenario CSV shards from "
-            "https://www.unb.ca/cic/datasets/iotdataset-2023.html, "
-            "concatenate and split them into train/test CSVs."
-        )
-    if not os.path.exists(test_path):
-        raise FileNotFoundError(f"CIC-IoT-2023 test file not found: {test_path}")
-
-    train = pd.read_csv(train_path, low_memory=False)
-    test = pd.read_csv(test_path, low_memory=False)
-    train.columns = [str(c).strip() for c in train.columns]
-    test.columns = [str(c).strip() for c in test.columns]
-
-    required = FEATURE_COLUMNS + [LABEL_COL]
-    for name, df in (("train", train), ("test", test)):
-        missing = [c for c in required if c not in df.columns]
-        if missing:
-            raise ValueError(
-                f"CIC-IoT-2023 {name} file is missing expected columns: {missing}."
-            )
-    return train, test
 
 
 # ── Server Quotas Computation ───────────────────────────────────────────────
 
-def compute_ciciot2023_quotas(
+def compute_edgeiiotset_quotas(
     counts: Dict[int, int],
     val_size: int = 2000,
     tune_fraction: float = 0.1,
@@ -432,7 +395,7 @@ def compute_ciciot2023_quotas(
     return val, tune, clients
 
 
-def extract_ciciot2023_splits(
+def extract_edgeiiotset_splits(
     df_train: pd.DataFrame,
     seed: int = 42,
     val_size: int = 2000,
@@ -445,7 +408,7 @@ def extract_ciciot2023_splits(
         raise ValueError(f"df_train must contain '{LABEL_COL}' column.")
 
     counts = df_train[LABEL_COL].value_counts().to_dict()
-    val_quotas, tune_quotas, _ = compute_ciciot2023_quotas(counts, val_size=val_size)
+    val_quotas, tune_quotas, _ = compute_edgeiiotset_quotas(counts, val_size=val_size)
 
     rng = np.random.RandomState(seed)
     val_indices: List[int] = []
@@ -516,6 +479,21 @@ def encode_and_scale_splits(
     server_df = pd.concat([val_df, tune_df], axis=0, ignore_index=True)
     encoders: Dict[str, LabelEncoder] = {}
 
+    # Encode any categorical columns present in server data
+    for col in cols:
+        if col in server_df.columns and server_df[col].dtype == object:
+            le = LabelEncoder()
+            le.fit(server_df[col].astype(str))
+            encoders[col] = le
+            mapping = {cls: idx for idx, cls in enumerate(le.classes_)}
+            server_df[col] = server_df[col].astype(str).map(mapping).fillna(0).astype(int)
+            val_df[col] = val_df[col].astype(str).map(mapping).fillna(0).astype(int)
+            tune_df[col] = tune_df[col].astype(str).map(mapping).fillna(0).astype(int)
+            client_df[col] = client_df[col].astype(str).map(mapping).fillna(0).astype(int)
+            if col in test_df.columns:
+                test_df[col] = test_df[col].astype(str).map(mapping).fillna(0).astype(int)
+
+    # Clean non-finite values before scaling
     def _extract_clean(df_in: pd.DataFrame) -> np.ndarray:
         arr = df_in[cols].values.astype(np.float32)
         return np.nan_to_num(arr, nan=0.0, posinf=np.finfo(np.float32).max, neginf=np.finfo(np.float32).min)
@@ -604,7 +582,7 @@ def apply_smote(X: np.ndarray, y: np.ndarray, random_state: int = 42) -> Tuple[n
 
 # ── Full Pipeline ───────────────────────────────────────────────────────────
 
-def get_ciciot2023_splits(
+def get_edgeiiotset_splits(
     train_path: str,
     test_path: str,
     seed: int = 42,
@@ -616,10 +594,21 @@ def get_ciciot2023_splits(
     test_caps: Optional[Dict[int, int]] = None,
 ) -> Dict[str, Any]:
     """
-    Load raw or pre-split CIC-IoT-2023 files and produce explicit paper splits:
+    Load raw or pre-split Edge-IIoTset files and produce explicit paper splits:
     D_val (2,000), D_tune, D_client, D_test.
     """
-    train_df, test_df = load_ciciot2023(train_path, test_path)
+    if not os.path.exists(train_path):
+        raise FileNotFoundError(
+            f"Edge-IIoTset training file not found: {train_path}\n"
+            "Download Edge-IIoTset from IEEE Dataport (10.1109/ACCESS.2022.3165809) "
+            "and place the training CSV at this path."
+        )
+    if not os.path.exists(test_path):
+        raise FileNotFoundError(f"Edge-IIoTset test file not found: {test_path}")
+
+    train_df = pd.read_csv(train_path, low_memory=False)
+    test_df = pd.read_csv(test_path, low_memory=False)
+
     train_df = map_labels(train_df)
     test_df = map_labels(test_df)
 
@@ -641,7 +630,7 @@ def get_ciciot2023_splits(
         train_df = apply_class_caps(train_df, tr_caps, seed=seed)
         test_df = apply_class_caps(test_df, te_caps, seed=seed)
 
-    val_df, tune_df, client_df = extract_ciciot2023_splits(train_df, seed=seed, val_size=val_size)
+    val_df, tune_df, client_df = extract_edgeiiotset_splits(train_df, seed=seed, val_size=val_size)
     (
         X_val, y_val,
         X_tune, y_tune,
@@ -678,7 +667,7 @@ def build_pipeline(
     test_caps: Optional[Dict[int, int]] = None,
 ):
     """
-    Full CIC-IoT-2023 preprocessing pipeline conforming to IEEE paper §VI-A and Table S5.
+    Full Edge-IIoTset preprocessing pipeline conforming to IEEE paper §VI-A and Table S5.
 
     Returns:
         If return_tune is False:
@@ -689,7 +678,7 @@ def build_pipeline(
     if protocol not in ("main", "leakage_free"):
         raise ValueError(f"Unknown protocol '{protocol}'. Choose 'main' or 'leakage_free'.")
 
-    splits = get_ciciot2023_splits(
+    splits = get_edgeiiotset_splits(
         train_path, test_path, seed=seed, val_size=val_size, apply_caps=apply_caps,
         cap_train=cap_train, cap_test=cap_test, train_caps=train_caps, test_caps=test_caps,
     )
@@ -703,7 +692,7 @@ def build_pipeline(
     weights = splits["class_weights"]
 
     print(
-        f"[CIC-IoT-2023] protocol={protocol} | Client pool: {X_client.shape} | "
+        f"[Edge-IIoTset] protocol={protocol} | Client pool: {X_client.shape} | "
         f"Val: {X_val.shape} | Tune: {X_tune.shape} | Test: {X_test.shape}"
     )
 

@@ -134,23 +134,34 @@ def setup_data(config: dict, dataset: str = "nslkdd", seed: int = 42,
             train_path, test_path, use_smote=(protocol == "main"),
             seed=seed, val_size=val_size, protocol=protocol,
         )
+    elif dataset == "edgeiiotset":
+        from data.preprocessing.edgeiiotset_pipeline import build_pipeline as edgeiiotset_pipeline
+        (X_train, y_train,
+         X_val, y_val,
+         X_test, y_test,
+         _, _, class_weights) = edgeiiotset_pipeline(
+            train_path, test_path, use_smote=(protocol == "main"),
+            seed=seed, val_size=val_size, protocol=protocol,
+        )
     else:
         raise NotImplementedError(f"Dataset '{dataset}' not yet integrated. "
-                                   "Use 'nslkdd', 'unswnb15', or 'ciciot2023'.")
+                                   "Use 'nslkdd', 'unswnb15', 'ciciot2023', or 'edgeiiotset'.")
 
     # Partition training data across clients
     partitioner = get_partitioner(partition_type, alpha=alpha)
     client_data = partitioner.partition(X_train, y_train, num_clients, seed=seed)
 
-    if protocol == "leakage_free" and dataset in ("nslkdd", "ciciot2023"):
+    if protocol == "leakage_free" and dataset in ("nslkdd", "ciciot2023", "edgeiiotset"):
         # Leakage-free protocol (paper Section VIII-A / Table VI): D_val was
         # drawn pre-SMOTE by the pipeline above, so SMOTE is applied here,
-        # per client, after Dirichlet partitioning. Both NSL-KDD and
-        # CIC-IoT-2023 support this; UNSW-NB15 does not (warned above).
+        # per client, after Dirichlet partitioning. NSL-KDD, CIC-IoT-2023,
+        # and Edge-IIoTset support this; UNSW-NB15 does not (warned above).
         if dataset == "nslkdd":
             from data.preprocessing.nslkdd_pipeline import apply_smote
-        else:
+        elif dataset == "ciciot2023":
             from data.preprocessing.ciciot2023_pipeline import apply_smote
+        else:
+            from data.preprocessing.edgeiiotset_pipeline import apply_smote
         client_data = [
             apply_smote(Xc, yc, random_state=seed + cid)
             for cid, (Xc, yc) in enumerate(client_data)
@@ -856,21 +867,34 @@ def run_experiment(
     if attack_type in ("ack1", "ack1_evasion", "ack2", "ack3", "ack3_evasion", "ack4"):
         from attacks.knowledge import ValidationEstimateProvider
         ktier = attack_kwargs.get("knowledge_tier", "K1")
+        dataset_quotas = None
+        if dataset == "nslkdd":
+            from attacks.knowledge import NSLKDD_VAL_QUOTAS
+            dataset_quotas = NSLKDD_VAL_QUOTAS
+        elif dataset == "ciciot2023":
+            from data.preprocessing.ciciot2023_pipeline import get_val_quotas
+            dataset_quotas = get_val_quotas(y_train, val_size=val_size)
+        elif dataset == "edgeiiotset":
+            from data.preprocessing.edgeiiotset_pipeline import get_val_quotas
+            dataset_quotas = get_val_quotas(y_train, val_size=val_size)
         try:
             if ktier == "K0":
                 coalition_data = [client_data[cid] for cid in malicious_ids]
                 proxy_val_data = ValidationEstimateProvider.get_validation_estimate(
-                    tier="K0", coalition_data=coalition_data, seed=seed
+                    tier="K0", coalition_data=coalition_data, seed=seed,
+                    val_quotas=dataset_quotas, total_samples=val_size,
                 )
             elif ktier == "K1":
                 X_bg = np.concatenate([X for X, _ in client_data], axis=0)
                 y_bg = np.concatenate([y for _, y in client_data], axis=0)
                 proxy_val_data = ValidationEstimateProvider.get_validation_estimate(
-                    tier="K1", background_data=(X_bg, y_bg), seed=seed
+                    tier="K1", background_data=(X_bg, y_bg), seed=seed,
+                    val_quotas=dataset_quotas, total_samples=val_size,
                 )
             elif ktier == "K2":
                 proxy_val_data = ValidationEstimateProvider.get_validation_estimate(
-                    tier="K2", server_val_data=(X_val, y_val), seed=seed
+                    tier="K2", server_val_data=(X_val, y_val), seed=seed,
+                    val_quotas=dataset_quotas, total_samples=val_size,
                 )
         except Exception as e:
             print(f"[Warning] Failed to construct knowledge-tier {ktier} validation estimate: {e}")
@@ -1083,7 +1107,7 @@ Examples:
                         choices=list(ATTACK_CONFIGS.keys()),
                         help="Attack configuration")
     parser.add_argument("--dataset",    type=str, default="nslkdd",
-                        choices=["nslkdd", "unswnb15", "ciciot2023"],
+                        choices=["nslkdd", "unswnb15", "ciciot2023", "edgeiiotset"],
                         help="Dataset name")
     parser.add_argument("--partition",  type=str, default="noniid",
                         choices=["iid", "noniid"],

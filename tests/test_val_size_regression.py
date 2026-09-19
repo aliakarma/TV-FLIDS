@@ -193,7 +193,8 @@ class TestLeakageFreeProtocol:
     def test_setup_data_applies_per_client_smote_for_both_datasets(self):
         """Leakage-free requires SMOTE after partitioning, per client. This was
         previously gated on dataset == 'nslkdd' only, so CIC-IoT-2023 silently
-        skipped it (and never even received protocol=)."""
+        skipped it (and never even received protocol=). Now covers nslkdd,
+        ciciot2023, and edgeiiotset."""
         import experiments.run_experiment as rex
         src = inspect.getsource(rex.setup_data)
-        assert 'protocol == "leakage_free" and dataset in ("nslkdd", "ciciot2023")' in src
+        assert 'protocol == "leakage_free" and dataset in ("nslkdd", "ciciot2023", "edgeiiotset")' in src
