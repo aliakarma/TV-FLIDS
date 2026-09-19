@@ -1,0 +1,26 @@
+{
+  "dataset": "edgeiiotset",
+  "name": "Edge-IIoTset",
+  "d": 61,
+  "K": 6,
+  "expected_params": 58310,
+  "created_utc": "2026-09-19T13:00:07.284920Z",
+  "files": [
+    {
+      "path": "data/raw/EdgeIIoTset_train.csv",
+      "abs_path": "C:\\Users\\Ali Akarma\\Documents\\GitHub\\TV-FLIDS\\data/raw/EdgeIIoTset_train.csv",
+      "exists": false,
+      "size_bytes": 0,
+      "size_mb": 0.0
+    },
+    {
+      "path": "data/raw/EdgeIIoTset_test.csv",
+      "abs_path": "C:\\Users\\Ali Akarma\\Documents\\GitHub\\TV-FLIDS\\data/raw/EdgeIIoTset_test.csv",
+      "exists": false,
+      "size_bytes": 0,
+      "size_mb": 0.0
+    }
+  ],
+  "hashes": {},
+  "is_unlocked": false
+}

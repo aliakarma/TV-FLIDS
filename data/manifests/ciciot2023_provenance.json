@@ -1,0 +1,26 @@
+{
+  "dataset": "ciciot2023",
+  "name": "CIC-IoT-2023",
+  "d": 46,
+  "K": 8,
+  "expected_params": 54600,
+  "created_utc": "2026-09-19T12:46:01.417476Z",
+  "files": [
+    {
+      "path": "data/raw/CICIoT2023_train.csv",
+      "abs_path": "C:\\Users\\Ali Akarma\\Documents\\GitHub\\TV-FLIDS\\data/raw/CICIoT2023_train.csv",
+      "exists": false,
+      "size_bytes": 0,
+      "size_mb": 0.0
+    },
+    {
+      "path": "data/raw/CICIoT2023_test.csv",
+      "abs_path": "C:\\Users\\Ali Akarma\\Documents\\GitHub\\TV-FLIDS\\data/raw/CICIoT2023_test.csv",
+      "exists": false,
+      "size_bytes": 0,
+      "size_mb": 0.0
+    }
+  ],
+  "hashes": {},
+  "is_unlocked": false
+}

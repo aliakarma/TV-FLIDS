@@ -104,6 +104,17 @@ class RunSpecification:
         }
         return data
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert RunSpecification to a dictionary."""
+        return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> RunSpecification:
+        """Construct RunSpecification from dictionary, filtering unknown keys."""
+        valid_fields = {f.name for f in dataclasses.fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered)
+
     @property
     def run_id(self) -> str:
         """Deterministic run ID computed from the scientific configuration."""

@@ -157,6 +157,20 @@ class AdaptiveTrustScorer(TrustScorer):
         if not torch.isfinite(meta_loss):
             raise ValueError(f"Non-finite meta-loss encountered: {meta_loss.item()}")
 
+        if not meta_loss.requires_grad:
+            # Saturated / zero-gradient boundary: retain current weights without step
+            snap = self.get_current_weights()
+            self.weight_history.append(snap)
+            self.saturation_history.append(is_saturated)
+            return {
+                "alpha": snap["alpha"],
+                "beta": snap["beta"],
+                "gamma": snap["gamma"],
+                "loss": float(meta_loss.item()),
+                "saturated": is_saturated,
+                "step_taken": False,
+            }
+
         meta_loss.backward()
 
         if not torch.isfinite(self.log_weights.grad).all():

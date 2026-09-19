@@ -61,6 +61,7 @@ COLUMNS = [
 ]
 
 CATEGORICAL_COLS = ["protocol_type", "service", "flag"]
+FEATURE_COLUMNS = [c for c in COLUMNS if c not in ("label", "difficulty")]
 
 # 5-class mapping: Normal(0), DoS(1), Probe(2), R2L(3), U2R(4)
 ATTACK_MAP = {

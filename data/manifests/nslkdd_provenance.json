@@ -1,0 +1,29 @@
+{
+  "dataset": "nslkdd",
+  "name": "NSL-KDD",
+  "d": 41,
+  "K": 5,
+  "expected_params": 53125,
+  "created_utc": "2026-09-19T12:45:48.883236Z",
+  "files": [
+    {
+      "path": "data/raw/KDDTrain+.txt",
+      "abs_path": "C:\\Users\\Ali Akarma\\Documents\\GitHub\\TV-FLIDS\\data/raw/KDDTrain+.txt",
+      "exists": true,
+      "size_bytes": 19109424,
+      "size_mb": 18.22
+    },
+    {
+      "path": "data/raw/KDDTest+.txt",
+      "abs_path": "C:\\Users\\Ali Akarma\\Documents\\GitHub\\TV-FLIDS\\data/raw/KDDTest+.txt",
+      "exists": true,
+      "size_bytes": 3441513,
+      "size_mb": 3.28
+    }
+  ],
+  "hashes": {
+    "data/raw/KDDTrain+.txt": "1b86d2f957b33082081bba410fe129b475efebcc13c9014c3f447c8271aadf95",
+    "data/raw/KDDTest+.txt": "fa46b0935342616aa83b7c2578db355b6a7aaabbc492248172c7a1e8b7ab8f84"
+  },
+  "is_unlocked": true
+}
