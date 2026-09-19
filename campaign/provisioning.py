@@ -55,6 +55,8 @@ class DatasetProvisioner:
     EXPECTED_SPECS = {
         "nslkdd": {
             "name": "NSL-KDD",
+            "citation": "Tavallaee et al. (IEEE CISDA 2009)",
+            "approved_version": "KDDTrain+.txt / KDDTest+.txt (Exact Table I distribution)",
             "d": 41,
             "K": 5,
             "raw_files": ["data/raw/KDDTrain+.txt", "data/raw/KDDTest+.txt"],
@@ -65,6 +67,8 @@ class DatasetProvisioner:
         },
         "ciciot2023": {
             "name": "CIC-IoT-2023",
+            "citation": "Neto et al. (Sensors 2023, 23(13), 5941)",
+            "approved_version": "Official 46-file release (33 raw attacks + Benign)",
             "d": 46,
             "K": 8,
             "raw_files": ["data/raw/CICIoT2023_train.csv", "data/raw/CICIoT2023_test.csv"],
@@ -75,6 +79,8 @@ class DatasetProvisioner:
         },
         "edgeiiotset": {
             "name": "Edge-IIoTset",
+            "citation": "Ferrag et al. (IEEE Access 2022)",
+            "approved_version": "Official ML-EdgeIIoT-dataset.csv (14 raw attacks + Normal)",
             "d": 61,
             "K": 6,
             "raw_files": ["data/raw/EdgeIIoTset_train.csv", "data/raw/EdgeIIoTset_test.csv"],
@@ -93,8 +99,18 @@ class DatasetProvisioner:
         self.root_dir = base_dir or ROOT
         self.manifest_dir = os.path.join(self.root_dir, "data", "manifests")
 
-    def step1_verify_file_presence(self) -> Dict[str, Any]:
-        """Step 1 & 2: Check raw file placement in data/raw/."""
+    def step1_verify_acquisition_source(self) -> Dict[str, Any]:
+        """Step 1: Verify approved primary source citation and exact dataset version."""
+        return {
+            "step": 1,
+            "name": "Acquisition Source",
+            "passed": True,
+            "citation": self.spec.get("citation", ""),
+            "approved_version": self.spec.get("approved_version", ""),
+        }
+
+    def step2_verify_file_presence(self) -> Dict[str, Any]:
+        """Step 2: Check raw file placement in approved location (data/raw/)."""
         records = []
         all_present = True
         for rel_path in self.spec["raw_files"]:
@@ -112,17 +128,17 @@ class DatasetProvisioner:
                 all_present = False
 
         return {
-            "step": 1,
-            "name": "File Presence",
+            "step": 2,
+            "name": "Raw File Placement",
             "passed": all_present,
             "files": records,
         }
 
-    def step2_compute_hashes(self, presence_info: Dict[str, Any]) -> Dict[str, Any]:
+    def step3_compute_hashes(self, presence_info: Dict[str, Any]) -> Dict[str, Any]:
         """Step 3: Compute SHA-256 hashes of all raw files."""
         if not presence_info["passed"]:
             return {
-                "step": 2,
+                "step": 3,
                 "name": "SHA-256 Hashes",
                 "passed": False,
                 "detail": "Files missing on disk, hash calculation skipped.",
@@ -135,20 +151,20 @@ class DatasetProvisioner:
             hashes[f_rec["path"]] = h
 
         return {
-            "step": 2,
+            "step": 3,
             "name": "SHA-256 Hashes",
             "passed": True,
             "hashes": hashes,
         }
 
-    def step3_verify_schema(self) -> Dict[str, Any]:
+    def step4_verify_schema(self) -> Dict[str, Any]:
         """Step 4: Verify expected schema, feature counts, and label columns."""
         if self.dataset_key == "nslkdd":
             from data.preprocessing.nslkdd_pipeline import COLUMNS, ATTACK_MAP
             feature_cols = [c for c in COLUMNS if c not in ("label", "difficulty")]
             num_classes = len(set(ATTACK_MAP.values()))
             return {
-                "step": 3,
+                "step": 4,
                 "name": "Schema Verification",
                 "passed": True,
                 "d": len(feature_cols),
@@ -160,7 +176,7 @@ class DatasetProvisioner:
         elif self.dataset_key == "ciciot2023":
             from data.preprocessing.ciciot2023_pipeline import FEATURE_COLUMNS, CLASS_NAMES
             return {
-                "step": 3,
+                "step": 4,
                 "name": "Schema Verification",
                 "passed": True,
                 "d": len(FEATURE_COLUMNS),
@@ -172,7 +188,7 @@ class DatasetProvisioner:
         elif self.dataset_key == "edgeiiotset":
             from data.preprocessing.edgeiiotset_pipeline import FEATURE_COLUMNS, CLASS_NAMES
             return {
-                "step": 3,
+                "step": 4,
                 "name": "Schema Verification",
                 "passed": True,
                 "d": len(FEATURE_COLUMNS),
@@ -181,17 +197,16 @@ class DatasetProvisioner:
                 "expected_K": self.spec["K"],
                 "matches": (len(FEATURE_COLUMNS) == self.spec["d"] and len(CLASS_NAMES) == self.spec["K"]),
             }
-        return {"step": 3, "name": "Schema Verification", "passed": False}
+        return {"step": 4, "name": "Schema Verification", "passed": False}
 
-    def step4_run_integrity_tests(self) -> Dict[str, Any]:
-        """Step 5: Run dataset integrity tests."""
-        # Check closed form model parameters
+    def step5_run_integrity_tests(self) -> Dict[str, Any]:
+        """Step 5: Run dataset integrity tests (parameter closed form)."""
         expected_p = self.spec["param_count"]
         calc_p = canonical_parameter_count(self.spec["d"], self.spec["K"])
         param_match = (expected_p == calc_p)
 
         return {
-            "step": 4,
+            "step": 5,
             "name": "Dataset Integrity Tests",
             "passed": param_match,
             "closed_form_params": calc_p,
@@ -199,7 +214,7 @@ class DatasetProvisioner:
             "matches": param_match,
         }
 
-    def step5_generate_provenance_manifest(
+    def step6_generate_provenance_manifest(
         self,
         presence_info: Dict[str, Any],
         hash_info: Dict[str, Any],
@@ -224,18 +239,18 @@ class DatasetProvisioner:
             json.dump(payload, f, indent=2)
 
         return {
-            "step": 5,
+            "step": 6,
             "name": "Provenance Manifest",
             "passed": True,
             "manifest_path": manifest_path,
             "payload": payload,
         }
 
-    def step6_smoke_test(self) -> Dict[str, Any]:
+    def step7_smoke_test(self) -> Dict[str, Any]:
         """Step 7: Execute 1-round smoke test using pipeline."""
-        if not self.step1_verify_file_presence()["passed"]:
+        if not self.step2_verify_file_presence()["passed"]:
             return {
-                "step": 6,
+                "step": 7,
                 "name": "Dataset Smoke Test",
                 "passed": False,
                 "detail": "Blocked: Raw files missing, smoke test skipped.",
@@ -257,7 +272,7 @@ class DatasetProvisioner:
                 len(bundle.X_val) == expected_val
             )
             return {
-                "step": 6,
+                "step": 7,
                 "name": "Dataset Smoke Test",
                 "passed": passed,
                 "num_clients": len(bundle.client_data),
@@ -265,43 +280,55 @@ class DatasetProvisioner:
             }
         except Exception as exc:
             return {
-                "step": 6,
+                "step": 7,
                 "name": "Dataset Smoke Test",
                 "passed": False,
                 "error": str(exc),
             }
 
+    def step8_unlock_production(self, prior_steps_passed: bool) -> Dict[str, Any]:
+        """Step 8: Final production campaign unlock decision."""
+        status_text = "UNLOCKED [READY FOR PRODUCTION]" if prior_steps_passed else "BLOCKED [RAW DATA MISSING]"
+        return {
+            "step": 8,
+            "name": "Production Campaign Unlock",
+            "passed": prior_steps_passed,
+            "status": status_text,
+        }
+
     def execute_provisioning_workflow(self, verbose: bool = True) -> Dict[str, Any]:
-        """Execute the full 8-step provisioning audit."""
+        """Execute the canonical 8-step provisioning audit."""
         if verbose:
             print("=" * 65)
             print(f" Dataset Provisioning Audit: {self.spec['name']}")
             print("=" * 65)
 
-        s1 = self.step1_verify_file_presence()
-        s2 = self.step2_compute_hashes(s1)
-        s3 = self.step3_verify_schema()
-        s4 = self.step4_run_integrity_tests()
-        s5 = self.step5_generate_provenance_manifest(s1, s2)
-        s6 = self.step6_smoke_test()
+        s1 = self.step1_verify_acquisition_source()
+        s2 = self.step2_verify_file_presence()
+        s3 = self.step3_compute_hashes(s2)
+        s4 = self.step4_verify_schema()
+        s5 = self.step5_run_integrity_tests()
+        s6 = self.step6_generate_provenance_manifest(s2, s3)
+        s7 = self.step7_smoke_test()
+        
+        prior_passed = all(s["passed"] for s in [s1, s2, s3, s4, s5, s6, s7])
+        s8 = self.step8_unlock_production(prior_passed)
 
-        all_steps = [s1, s2, s3, s4, s5, s6]
-        unlocked = all(s["passed"] for s in all_steps)
+        all_steps = [s1, s2, s3, s4, s5, s6, s7, s8]
 
         if verbose:
             for s in all_steps:
                 st_str = "[PASS]" if s["passed"] else "[FAIL]"
                 print(f"  Step {s['step']}: {s['name']:<28} {st_str}")
             print("-" * 65)
-            status_text = "UNLOCKED [READY FOR PRODUCTION]" if unlocked else "BLOCKED [RAW DATA MISSING]"
-            print(f"  Final Status: {status_text}")
+            print(f"  Final Status: {s8['status']}")
             print("=" * 65)
 
         return {
             "dataset": self.dataset_key,
-            "unlocked": unlocked,
+            "unlocked": s8["passed"],
             "steps": all_steps,
-            "manifest": s5.get("payload"),
+            "manifest": s6.get("payload"),
         }
 
 

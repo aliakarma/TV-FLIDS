@@ -28,6 +28,7 @@ results/ciciot2023/
 results/edgeiiotset/
 results/analysis/
 results/analysis_pilot/
+results/benchmark_concurrency/
 results/figures/*.png
 results/figures/*.pdf
 
@@ -46,6 +47,7 @@ Thumbs.db
 
 # Temp files
 /tmp/
+scratch/
 *.tmp
 *.bak
 

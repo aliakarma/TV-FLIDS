@@ -4,7 +4,7 @@
   "d": 41,
   "K": 5,
   "expected_params": 53125,
-  "created_utc": "2026-09-19T12:45:48.883236Z",
+  "created_utc": "2026-09-19T13:12:29.677970Z",
   "files": [
     {
       "path": "data/raw/KDDTrain+.txt",
